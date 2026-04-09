@@ -9,6 +9,7 @@ import BookDetail from './pages/BookDetail'
 import Upload from './pages/Upload'
 import Profile from './pages/Profile'
 import Chat from './pages/Chat'
+import PublicProfile from './pages/PublicProfile'
 
 export default function App() {
   const [authOpen, setAuthOpen] = useState(false)
@@ -23,7 +24,6 @@ export default function App() {
     <AuthProvider>
       <div style={{ paddingBottom: 72 }}>
         <Nav onOpenAuth={openAuth} />
-
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/explore" element={<Explore />} />
@@ -31,13 +31,10 @@ export default function App() {
           <Route path="/upload" element={<Upload />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/chat" element={<Chat />} />
+          <Route path="/user/:id" element={<PublicProfile />} />
         </Routes>
-
         {authOpen && (
-          <AuthModal
-            contextMsg={authContext}
-            onClose={() => setAuthOpen(false)}
-          />
+          <AuthModal contextMsg={authContext} onClose={() => setAuthOpen(false)} />
         )}
       </div>
     </AuthProvider>
