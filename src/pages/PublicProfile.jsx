@@ -64,7 +64,7 @@ export default function PublicProfile() {
               </p>
             )}
             <div style={{ display: 'flex', gap: 20, marginTop: 12 }}>
-              {[[books.length,'Bücher'],[profile.trades_count||0,'Tausche'],[profile.rating?profile.rating.toFixed(1)+'★':'5.0★','Bewertung']].map(([n,l]) => (
+              {[[books.length,'Bücher'],[profile.trades_count||0,'Tausche'],[profile.rating && profile.rating > 0 ? profile.rating.toFixed(1)+'★' : 'Neu','Bewertung']].map(([n,l]) => (
                 <div key={l}>
                   <div style={{ fontWeight: 900, fontSize: '1.1rem', color: '#fff' }}>{n}</div>
                   <div style={{ fontSize: '0.7rem', opacity: 0.65, color: '#fff' }}>{l}</div>
