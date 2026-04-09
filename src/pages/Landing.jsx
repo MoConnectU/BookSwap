@@ -35,7 +35,7 @@ export default function Landing() {
       { count: tradeCount },
       { count: userCount }
     ] = await Promise.all([
-      supabase.from('books').select('*', { count: 'exact', head: true }),
+      supabase.from('books').select('*', { count: 'exact', head: true }).eq('is_available', true),
       supabase.from('swap_requests').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
       supabase.from('profiles').select('*', { count: 'exact', head: true }),
     ])
