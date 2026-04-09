@@ -7,13 +7,44 @@ import { supabase } from '../lib/supabase'
 export default function Landing() {
   const navigate = useNavigate()
   const [recentBooks, setRecentBooks] = useState([])
+  const [stats, setStats] = useState({ books: 0, trades: 0, users: 0 })
+
+  const COLORS = [
+    'linear-gradient(135deg,#7C3AED,#A78BFA)',
+    'linear-gradient(135deg,#2563EB,#60A5FA)',
+    'linear-gradient(135deg,#0F766E,#34D399)',
+    'linear-gradient(135deg,#D97706,#FCD34D)',
+  ]
 
   useEffect(() => {
-    supabase.from('books').select('*, profiles(name, city)').eq('is_available', true).order('created_at', { ascending: false }).limit(4)
-      .then(({ data }) => { if (data?.length) setRecentBooks(data) })
+    fetchData()
   }, [])
 
-  const COLORS = ['linear-gradient(135deg,#7C3AED,#A78BFA)', 'linear-gradient(135deg,#2563EB,#60A5FA)', 'linear-gradient(135deg,#0F766E,#34D399)', 'linear-gradient(135deg,#D97706,#FCD34D)']
+  const fetchData = async () => {
+    // Recent books
+    const { data: books } = await supabase
+      .from('books').select('*, profiles(name, city)')
+      .eq('is_available', true)
+      .order('created_at', { ascending: false })
+      .limit(4)
+    if (books) setRecentBooks(books)
+
+    // Real stats
+    const [
+      { count: bookCount },
+      { count: tradeCount },
+      { count: userCount }
+    ] = await Promise.all([
+      supabase.from('books').select('*', { count: 'exact', head: true }),
+      supabase.from('swap_requests').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
+      supabase.from('profiles').select('*', { count: 'exact', head: true }),
+    ])
+    setStats({
+      books: bookCount || 0,
+      trades: tradeCount || 0,
+      users: userCount || 0,
+    })
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg }}>
@@ -45,9 +76,14 @@ export default function Landing() {
         </div>
       </div>
 
-      {/* STATS */}
+      {/* REAL STATS */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '1.2rem 2rem', display: 'flex', justifyContent: 'center', gap: '2.5rem', flexWrap: 'wrap' }}>
-        {[['📚','Bücher online'],['🤝','Tausche gemacht'],['👥','Aktive Leser'],['0€','Pro Tausch']].map(([n,l]) => (
+        {[
+          [stats.books, 'Bücher online'],
+          [stats.trades, 'Tausche gemacht'],
+          [stats.users, 'Aktive Leser'],
+          ['0€', 'Pro Tausch'],
+        ].map(([n, l]) => (
           <div key={l} style={{ textAlign: 'center' }}>
             <div style={{ fontWeight: 900, fontSize: '1.3rem', background: `linear-gradient(135deg,${C.purple},${C.blue})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{n}</div>
             <div style={{ fontSize: '0.75rem', color: C.muted, fontWeight: 500 }}>{l}</div>
@@ -63,9 +99,9 @@ export default function Landing() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: '1.2rem' }}>
           {[
-            { step:'01', icon:'📚', title:'Einstellen', desc:'Foto + Titel + Zustand in 2 Minuten.', color: C.purpleLight, accent: C.purple },
-            { step:'02', icon:'🔍', title:'Entdecken', desc:'Stöbere & finde deinen Match.', color: C.blueLight, accent: C.blue },
-            { step:'03', icon:'✅', title:'Tauschen', desc:'Anfrage senden — beide glücklich.', color: C.successLight, accent: C.success },
+            { step: '01', icon: '📚', title: 'Einstellen', desc: 'Foto + Titel + Zustand in 2 Minuten.', color: C.purpleLight, accent: C.purple },
+            { step: '02', icon: '🔍', title: 'Entdecken', desc: 'Stöbere & finde deinen Match.', color: C.blueLight, accent: C.blue },
+            { step: '03', icon: '✅', title: 'Tauschen', desc: 'Anfrage senden — beide glücklich.', color: C.successLight, accent: C.success },
           ].map(s => (
             <Card key={s.step} style={{ padding: '1.5rem' }}>
               <div style={{ width: 44, height: 44, borderRadius: 12, background: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem', marginBottom: 12 }}>{s.icon}</div>
@@ -89,8 +125,8 @@ export default function Landing() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: '1rem' }}>
             {recentBooks.map((b, i) => (
               <Card key={b.id} onClick={() => navigate(`/book/${b.id}`)}>
-                <div style={{ height: 120, background: COLORS[i % COLORS.length], display: 'flex', alignItems: 'flex-end', padding: '0 0.75rem 0.75rem' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#fff', lineHeight: 1.2 }}>{b.title}</span>
+                <div style={{ height: 120, background: b.cover_url ? `url(${b.cover_url}) center/cover` : COLORS[i % COLORS.length], display: 'flex', alignItems: 'flex-end', padding: '0 0.75rem 0.75rem' }}>
+                  {!b.cover_url && <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#fff', lineHeight: 1.2 }}>{b.title}</span>}
                 </div>
                 <div style={{ padding: '0.75rem' }}>
                   <div style={{ fontSize: '0.82rem', fontWeight: 700, color: C.text, marginBottom: 2 }}>{b.title}</div>
