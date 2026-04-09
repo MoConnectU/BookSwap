@@ -17,28 +17,66 @@ export default function BookDetail({ onOpenAuth }) {
   const [selectedBook, setSelectedBook] = useState(null)
   const [swapLoading, setSwapLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [existingConv, setExistingConv] = useState(null)
 
-  const COLORS = ['linear-gradient(135deg,#7C3AED,#A78BFA)', 'linear-gradient(135deg,#2563EB,#60A5FA)', 'linear-gradient(135deg,#0F766E,#34D399)']
+  const COLORS = [
+    'linear-gradient(135deg,#7C3AED,#A78BFA)',
+    'linear-gradient(135deg,#2563EB,#60A5FA)',
+    'linear-gradient(135deg,#0F766E,#34D399)',
+  ]
 
   useEffect(() => {
     fetchBook()
-    if (user) fetchMyBooks()
+    if (user) {
+      fetchMyBooks()
+      checkExistingConversation()
+    }
   }, [id, user])
 
   const fetchBook = async () => {
-    const { data } = await supabase.from('books').select('*, profiles(id, name, city, rating, trades_count, avatar_url)').eq('id', id).single()
+    const { data } = await supabase
+      .from('books')
+      .select('*, profiles(id, name, city, rating, trades_count, avatar_url)')
+      .eq('id', id).single()
     setBook(data)
     setLoading(false)
   }
 
   const fetchMyBooks = async () => {
-    const { data } = await supabase.from('books').select('*').eq('user_id', user.id).eq('is_available', true)
+    const { data } = await supabase
+      .from('books').select('*')
+      .eq('user_id', user.id)
+      .eq('is_available', true)
     setMyBooks(data || [])
+  }
+
+  // Bug 3 fix: check if conversation already exists with this book owner
+  const checkExistingConversation = async () => {
+    const { data: bookData } = await supabase
+      .from('books').select('user_id').eq('id', id).single()
+    if (!bookData) return
+
+    const ownerId = bookData.user_id
+    const { data: conv } = await supabase
+      .from('conversations')
+      .select('id')
+      .or(`and(user1_id.eq.${user.id},user2_id.eq.${ownerId}),and(user1_id.eq.${ownerId},user2_id.eq.${user.id})`)
+      .single()
+    if (conv) setExistingConv(conv.id)
   }
 
   const handleSwapClick = () => {
     if (!user) { onOpenAuth('Melde dich an, um einen Tausch anzubieten.'); return }
     setSwapOpen(true)
+  }
+
+  const handleMessageClick = () => {
+    if (!user) { onOpenAuth('Melde dich an, um Nachrichten zu senden.'); return }
+    if (existingConv) {
+      navigate('/chat')
+    } else {
+      onOpenAuth && alert('Starte zuerst einen Tausch, um Nachrichten senden zu können.')
+    }
   }
 
   const handleSwapConfirm = async () => {
@@ -47,7 +85,7 @@ export default function BookDetail({ onOpenAuth }) {
     const { error } = await supabase.from('swap_requests').insert({
       requester_id: user.id,
       owner_id: book.profiles.id,
-      requested_book_id: book.id,
+      requested_book_id: book.id,  // Bug 4 fix: correct book id
       offered_book_id: selectedBook.id,
       status: 'pending'
     })
@@ -55,14 +93,21 @@ export default function BookDetail({ onOpenAuth }) {
     if (!error) { setSwapOpen(false); setSuccess(true) }
   }
 
-  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}><Spinner size={36} /></div>
-  if (!book) return <div style={{ padding: '2rem', textAlign: 'center', color: C.muted }}>Buch nicht gefunden.</div>
+  if (loading) return (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
+      <Spinner size={36} />
+    </div>
+  )
+  if (!book) return (
+    <div style={{ padding: '2rem', textAlign: 'center', color: C.muted }}>Buch nicht gefunden.</div>
+  )
 
   const gradient = COLORS[0]
+  const isOwnBook = user?.id === book.user_id
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg }}>
-      {/* Back button bar */}
+      {/* Back bar */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', gap: 10 }}>
         <button onClick={() => navigate(-1)} style={{ width: 36, height: 36, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <ChevronLeft size={20} color={C.muted} />
@@ -87,7 +132,7 @@ export default function BookDetail({ onOpenAuth }) {
           </div>
         </div>
 
-        {/* Details card */}
+        {/* Details */}
         <Card style={{ padding: '1.5rem', marginBottom: 12 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
             <CondBadge cond={book.condition} />
@@ -96,27 +141,49 @@ export default function BookDetail({ onOpenAuth }) {
           {book.description && <p style={{ fontSize: '0.9rem', color: C.muted, lineHeight: 1.7 }}>{book.description}</p>}
         </Card>
 
-        {/* Owner card */}
+        {/* Owner */}
         {book.profiles && (
-          <Card style={{ padding: '1.2rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Card style={{ padding: '1.2rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}
+            onClick={() => navigate(`/user/${book.profiles.id}`)}>
             <Avatar letter={book.profiles.name || '?'} size={48} src={book.profiles.avatar_url} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, color: C.text, fontSize: '0.95rem' }}>{book.profiles.name}</div>
               <div style={{ fontSize: '0.8rem', color: C.muted, display: 'flex', alignItems: 'center', gap: 10, marginTop: 2 }}>
                 {book.profiles.city && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><MapPin size={11} />{book.profiles.city}</span>}
-                {book.profiles.rating && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><Star size={11} color={C.warning} fill={C.warning} />{book.profiles.rating?.toFixed(1)} · {book.profiles.trades_count} Tausche</span>}
+                {book.profiles.rating && <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><Star size={11} color={C.warning} fill={C.warning} />{book.profiles.rating?.toFixed(1)} · {book.profiles.trades_count || 0} Tausche</span>}
               </div>
             </div>
-            <GhostBtn style={{ borderRadius: 10, padding: '0.5rem 1rem', fontSize: '0.82rem' }} icon={MessageCircle}>
-              Nachricht
-            </GhostBtn>
+            <span style={{ fontSize: '0.75rem', color: C.purple, fontWeight: 500 }}>Profil →</span>
           </Card>
         )}
 
-        {book.user_id !== user?.id && (
-          <PrimaryBtn onClick={handleSwapClick} style={{ width: '100%', padding: '1rem', borderRadius: 14, fontSize: '1rem' }} icon={ArrowLeftRight}>
-            Tausch anbieten
-          </PrimaryBtn>
+        {/* Action buttons — only show if not own book */}
+        {!isOwnBook && (
+          <div style={{ display: 'flex', gap: 12 }}>
+            <PrimaryBtn
+              onClick={handleSwapClick}
+              style={{ flex: 1, padding: '1rem', borderRadius: 14, fontSize: '1rem' }}
+              icon={ArrowLeftRight}
+            >
+              Tausch anbieten
+            </PrimaryBtn>
+            {/* Bug 3 fix: Nachricht only shows if conversation exists */}
+            {existingConv && (
+              <GhostBtn
+                onClick={handleMessageClick}
+                style={{ borderRadius: 14, fontSize: '0.95rem', padding: '1rem 1.2rem' }}
+                icon={MessageCircle}
+              >
+                Nachricht
+              </GhostBtn>
+            )}
+          </div>
+        )}
+
+        {isOwnBook && (
+          <div style={{ background: C.purpleLight, borderRadius: 12, padding: '1rem', textAlign: 'center', color: C.purple, fontSize: '0.85rem', fontWeight: 500 }}>
+            Das ist dein eigenes Buch
+          </div>
         )}
       </div>
 
@@ -125,28 +192,40 @@ export default function BookDetail({ onOpenAuth }) {
         <div onClick={() => setSwapOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(17,24,39,0.6)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <div onClick={e => e.stopPropagation()} style={{ background: C.surface, borderRadius: 20, padding: '2rem', maxWidth: 480, width: '100%', boxShadow: '0 24px 60px rgba(0,0,0,0.2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: C.text }}>Tausch vorschlagen</h2>
-              <button onClick={() => setSwapOpen(false)} style={{ width: 32, height: 32, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} color={C.muted} /></button>
+              <div>
+                <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: C.text }}>Tausch vorschlagen</h2>
+                <p style={{ fontSize: '0.82rem', color: C.muted, marginTop: 2 }}>Für: <strong>{book.title}</strong></p>
+              </div>
+              <button onClick={() => setSwapOpen(false)} style={{ width: 32, height: 32, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <X size={16} color={C.muted} />
+              </button>
             </div>
-            <p style={{ fontSize: '0.85rem', color: C.muted, marginBottom: 20 }}>Wähle eines deiner Bücher als Tauschangebot.</p>
 
             {myBooks.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '1.5rem', color: C.muted }}>
                 <p style={{ marginBottom: 12 }}>Du hast noch keine Bücher eingestellt.</p>
-                <PrimaryBtn onClick={() => { setSwapOpen(false); navigate('/upload') }}>Jetzt Buch einstellen</PrimaryBtn>
+                <PrimaryBtn onClick={() => { setSwapOpen(false); navigate('/upload') }}>
+                  Jetzt Buch einstellen
+                </PrimaryBtn>
               </div>
             ) : (
               <>
+                <p style={{ fontSize: '0.78rem', fontWeight: 600, color: C.muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Wähle dein Angebot:</p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 8, marginBottom: 20 }}>
                   {myBooks.map((b, i) => (
-                    <div key={b.id} onClick={() => setSelectedBook(b)} style={{ border: `2px solid ${selectedBook?.id === b.id ? C.purple : C.border}`, borderRadius: 12, padding: '0.75rem 0.5rem', cursor: 'pointer', background: selectedBook?.id === b.id ? C.purpleLight : 'transparent', textAlign: 'center' }}>
+                    <div key={b.id} onClick={() => setSelectedBook(b)} style={{ border: `2px solid ${selectedBook?.id === b.id ? C.purple : C.border}`, borderRadius: 12, padding: '0.75rem 0.5rem', cursor: 'pointer', background: selectedBook?.id === b.id ? C.purpleLight : 'transparent', textAlign: 'center', transition: 'all 0.18s' }}>
                       <div style={{ width: 40, height: 55, borderRadius: '3px 7px 7px 3px', background: b.cover_url ? `url(${b.cover_url}) center/cover` : COLORS[i % COLORS.length], margin: '0 auto 6px', boxShadow: '1px 2px 6px rgba(0,0,0,0.15)' }} />
                       <span style={{ fontSize: '0.7rem', color: C.text, fontWeight: 600, display: 'block', lineHeight: 1.2 }}>{b.title}</span>
                     </div>
                   ))}
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <PrimaryBtn onClick={handleSwapConfirm} disabled={!selectedBook || swapLoading} style={{ flex: 1, borderRadius: 12 }} icon={Check}>
+                  <PrimaryBtn
+                    onClick={handleSwapConfirm}
+                    disabled={!selectedBook || swapLoading}
+                    style={{ flex: 1, borderRadius: 12 }}
+                    icon={Check}
+                  >
                     {swapLoading ? 'Wird gesendet...' : 'Anfrage senden'}
                   </PrimaryBtn>
                   <GhostBtn onClick={() => setSwapOpen(false)} style={{ borderRadius: 12 }}>Abbrechen</GhostBtn>
@@ -166,7 +245,8 @@ export default function BookDetail({ onOpenAuth }) {
             </div>
             <h2 style={{ fontSize: '1.5rem', fontWeight: 900, color: C.text, marginBottom: 8 }}>Anfrage gesendet! 🎉</h2>
             <p style={{ color: C.muted, fontSize: '0.9rem', lineHeight: 1.6, marginBottom: 24 }}>
-              <strong>{book.profiles?.name}</strong> wurde benachrichtigt.<br />Durchschnittliche Antwortzeit: <strong>2 Stunden</strong>.
+              <strong>{book.profiles?.name}</strong> wurde benachrichtigt.<br />
+              Sobald er/sie annimmt, öffnet sich der Chat.
             </p>
             <PrimaryBtn onClick={() => { setSuccess(false); navigate('/explore') }} style={{ width: '100%', borderRadius: 12 }}>
               Weitere Bücher entdecken
