@@ -267,11 +267,7 @@ export default function Chat() {
             </button>
           </div>
         </div>
-      ) : (
-        <div style={{ background: C.successLight, padding: '1rem', textAlign: 'center', fontSize: '0.85rem', color: C.success, fontWeight: 600, flexShrink: 0 }}>
-          ✓ Dieser Tausch ist abgeschlossen — Viel Spaß mit dem Buch! 📚
-        </div>
-      )}
+      ) : null}
 
       {/* Review Modal — appears after completing swap */}
       {showReview && otherUser && (
