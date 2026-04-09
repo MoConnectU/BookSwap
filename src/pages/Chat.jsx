@@ -101,7 +101,7 @@ export default function Chat() {
       text
     }).select().single()
 
-    if (msg) setMessages(prev => [...prev, msg])
+    // Realtime listener handles the new message
     await supabase.from('conversations')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', activeConv.id)
