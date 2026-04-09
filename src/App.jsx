@@ -8,6 +8,7 @@ import Explore from './pages/Explore'
 import BookDetail from './pages/BookDetail'
 import Upload from './pages/Upload'
 import Profile from './pages/Profile'
+import Chat from './pages/Chat'
 
 export default function App() {
   const [authOpen, setAuthOpen] = useState(false)
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="/book/:id" element={<BookDetail onOpenAuth={openAuth} />} />
           <Route path="/upload" element={<Upload />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/chat" element={<Chat />} />
         </Routes>
 
         {authOpen && (
