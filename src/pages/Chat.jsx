@@ -24,12 +24,16 @@ function ReviewModal({ otherUser, swapId, onClose, onSaved }) {
       rating,
       comment: comment.trim() || null
     })
-    // Update average rating
+    // Recalculate and update average rating
     const { data: allReviews } = await supabase
       .from('reviews').select('rating').eq('reviewed_id', otherUser.id)
     if (allReviews?.length) {
       const avg = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length
-      await supabase.from('profiles').update({ rating: Math.round(avg * 10) / 10 }).eq('id', otherUser.id)
+      const rounded = Math.round(avg * 10) / 10
+      await supabase.from('profiles').update({ rating: rounded }).eq('id', otherUser.id)
+      console.log(`Rating updated for ${otherUser.id}: ${rounded} (${allReviews.length} reviews)`)
+    } else {
+      await supabase.from('profiles').update({ rating: 0 }).eq('id', otherUser.id)
     }
     setSaving(false)
     onSaved()
