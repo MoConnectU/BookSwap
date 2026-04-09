@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Check, Bell, LogOut, Trash2, MessageCircle } from 'lucide-react'
+import { Plus, Check, LogOut, Trash2, MessageCircle, Edit2, Camera, X, Star } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
-import { C, Card, Avatar, Badge, PrimaryBtn, Spinner } from '../components/UI'
+import { C, Card, Avatar, Badge, PrimaryBtn, GhostBtn, Spinner } from '../components/UI'
 
 const COLORS = [
   'linear-gradient(135deg,#7C3AED,#A78BFA)',
@@ -14,13 +14,15 @@ const COLORS = [
 
 export default function Profile() {
   const navigate = useNavigate()
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, signOut, refreshProfile } = useAuth()
   const [myBooks, setMyBooks] = useState([])
   const [swapRequests, setSwapRequests] = useState([])
+  const [completedSwaps, setCompletedSwaps] = useState([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('books')
   const [deleting, setDeleting] = useState(null)
   const [responding, setResponding] = useState(null)
+  const [editOpen, setEditOpen] = useState(false)
 
   useEffect(() => {
     if (!user) { navigate('/'); return }
@@ -29,21 +31,27 @@ export default function Profile() {
 
   const fetchMyData = async () => {
     setLoading(true)
-    const [{ data: books }, { data: swaps }] = await Promise.all([
+    const [{ data: books }, { data: swaps }, { data: completed }] = await Promise.all([
       supabase.from('books').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
       supabase.from('swap_requests')
         .select('*, books!requested_book_id(title, author), profiles!requester_id(name, avatar_url)')
-        .eq('owner_id', user.id).eq('status', 'pending')
+        .eq('owner_id', user.id).eq('status', 'pending'),
+      supabase.from('swap_requests')
+        .select('*, books!requested_book_id(title), books!offered_book_id(title), profiles!requester_id(name), profiles!owner_id(name)')
+        .or(`requester_id.eq.${user.id},owner_id.eq.${user.id}`)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false })
     ])
     setMyBooks(books || [])
     setSwapRequests(swaps || [])
+    setCompletedSwaps(completed || [])
     setLoading(false)
   }
 
   const handleDeleteBook = async (bookId, coverUrl) => {
-    if (!window.confirm('Buch wirklich löschen? Das kann nicht rückgängig gemacht werden.')) return
+    if (!window.confirm('Buch wirklich löschen?')) return
     setDeleting(bookId)
-    if (coverUrl && coverUrl.includes('/book-covers/')) {
+    if (coverUrl?.includes('/book-covers/')) {
       const path = coverUrl.split('/book-covers/')[1]
       if (path) await supabase.storage.from('book-covers').remove([path])
     }
@@ -56,11 +64,7 @@ export default function Profile() {
     setResponding(swapId)
     await supabase.from('swap_requests').update({ status }).eq('id', swapId)
     setResponding(null)
-    if (status === 'accepted') {
-      // Chat wird automatisch erstellt via DB Trigger
-      // Kurz warten dann zu Chat navigieren
-      setTimeout(() => navigate('/chat'), 800)
-    }
+    if (status === 'accepted') setTimeout(() => navigate('/chat'), 800)
     fetchMyData()
   }
 
@@ -73,12 +77,26 @@ export default function Profile() {
       <div style={{ background: `linear-gradient(135deg,${C.purple},${C.blue})`, padding: '2.5rem 1.5rem 3.5rem' }}>
         <div style={{ maxWidth: 700, margin: '0 auto', display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            <Avatar letter={name} size={72} src={profile?.avatar_url} />
+            {/* Avatar with edit overlay */}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <Avatar letter={name} size={72} src={profile?.avatar_url} />
+              <button onClick={() => setEditOpen(true)} style={{ position: 'absolute', bottom: -2, right: -2, width: 24, height: 24, borderRadius: '50%', background: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+                <Camera size={12} color={C.purple} />
+              </button>
+            </div>
             <div>
-              <h2 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#fff' }}>{name}</h2>
-              <p style={{ opacity: 0.7, fontSize: '0.82rem', color: '#fff', marginTop: 2 }}>{user?.email}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#fff' }}>{name}</h2>
+                <button onClick={() => setEditOpen(true)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 6, padding: '0.2rem 0.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Edit2 size={12} color="#fff" />
+                  <span style={{ fontSize: '0.72rem', color: '#fff', fontWeight: 500 }}>Bearbeiten</span>
+                </button>
+              </div>
+              <p style={{ opacity: 0.7, fontSize: '0.82rem', color: '#fff', marginTop: 2 }}>
+                {profile?.city ? `📍 ${profile.city} · ` : ''}{user?.email}
+              </p>
               <div style={{ display: 'flex', gap: 20, marginTop: 10 }}>
-                {[[myBooks.length,'Bücher'],[profile?.trades_count||0,'Tausche'],[profile?.rating?profile.rating.toFixed(1)+'★':'–','Bewertung']].map(([n,l]) => (
+                {[[myBooks.length,'Bücher'],[profile?.trades_count||0,'Tausche'],[profile?.rating?profile.rating.toFixed(1)+'★':'5.0★','Bewertung']].map(([n,l]) => (
                   <div key={l}>
                     <div style={{ fontWeight: 900, fontSize: '1.2rem', color: '#fff' }}>{n}</div>
                     <div style={{ fontSize: '0.7rem', opacity: 0.65, color: '#fff' }}>{l}</div>
@@ -87,7 +105,7 @@ export default function Profile() {
               </div>
             </div>
           </div>
-          <button onClick={handleSignOut} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 10, padding: '0.6rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, color: '#fff', fontSize: '0.82rem', fontWeight: 500 }}>
+          <button onClick={handleSignOut} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 10, padding: '0.6rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, color: '#fff', fontSize: '0.82rem', fontWeight: 500, flexShrink: 0 }}>
             <LogOut size={16} /> Abmelden
           </button>
         </div>
@@ -100,7 +118,7 @@ export default function Profile() {
             <div style={{ width: 36, height: 36, borderRadius: 10, background: C.purpleLight, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Plus size={18} color={C.purple} /></div>
             <div><div style={{ fontWeight: 700, fontSize: '0.85rem', color: C.text }}>Buch einstellen</div><div style={{ fontSize: '0.72rem', color: C.muted }}>Neues Buch hinzufügen</div></div>
           </Card>
-          <Card onClick={() => navigate('/chat')} style={{ padding: '1.1rem', display: 'flex', alignItems: 'center', gap: 10, position: 'relative', cursor: 'pointer' }}>
+          <Card onClick={() => navigate('/chat')} style={{ padding: '1.1rem', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: C.blueLight, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><MessageCircle size={18} color={C.blue} /></div>
             <div><div style={{ fontWeight: 700, fontSize: '0.85rem', color: C.text }}>Nachrichten</div><div style={{ fontSize: '0.72rem', color: C.muted }}>Chat öffnen</div></div>
           </Card>
@@ -108,11 +126,11 @@ export default function Profile() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}>
-          {[['books','Mein Regal'],['swaps',`Anfragen (${swapRequests.length})`]].map(([id,label]) => (
-            <div key={id} onClick={() => setTab(id)} style={{ padding: '0.7rem 1.3rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.88rem', color: tab===id?C.text:C.muted, borderBottom: `2px solid ${tab===id?C.purple:'transparent'}`, marginBottom: -1, position: 'relative' }}>
+          {[['books','Mein Regal'],['swaps',`Anfragen (${swapRequests.length})`],['history','Verlauf']].map(([id,label]) => (
+            <div key={id} onClick={() => setTab(id)} style={{ padding: '0.7rem 1.1rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', color: tab===id?C.text:C.muted, borderBottom: `2px solid ${tab===id?C.purple:'transparent'}`, marginBottom: -1, position: 'relative', whiteSpace: 'nowrap' }}>
               {label}
               {id === 'swaps' && swapRequests.length > 0 && (
-                <span style={{ position: 'absolute', top: 8, right: 4, width: 16, height: 16, borderRadius: '50%', background: C.purple, color: '#fff', fontSize: '0.6rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{swapRequests.length}</span>
+                <span style={{ position: 'absolute', top: 6, right: 2, width: 16, height: 16, borderRadius: '50%', background: C.purple, color: '#fff', fontSize: '0.6rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{swapRequests.length}</span>
               )}
             </div>
           ))}
@@ -141,7 +159,7 @@ export default function Profile() {
                       <Check size={11} /> {b.is_available ? 'Online' : 'Getauscht'} · {b.condition}
                     </div>
                     {b.is_available && (
-                      <button onClick={() => handleDeleteBook(b.id, b.cover_url)} disabled={deleting === b.id} style={{ width: '100%', padding: '0.45rem', borderRadius: 8, border: '1px solid #FEE2E2', background: '#FFF5F5', color: '#EF4444', cursor: deleting === b.id ? 'not-allowed' : 'pointer', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                      <button onClick={() => handleDeleteBook(b.id, b.cover_url)} disabled={deleting === b.id} style={{ width: '100%', padding: '0.45rem', borderRadius: 8, border: '1px solid #FEE2E2', background: '#FFF5F5', color: '#EF4444', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
                         <Trash2 size={12} />{deleting === b.id ? 'Löschen...' : 'Löschen'}
                       </button>
                     )}
@@ -150,7 +168,7 @@ export default function Profile() {
               ))}
             </div>
           )
-        ) : (
+        ) : tab === 'swaps' ? (
           swapRequests.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>🤝</div>
@@ -170,18 +188,10 @@ export default function Profile() {
                     <Badge>Neu</Badge>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={() => handleSwapResponse(s.id, 'accepted')}
-                      disabled={responding === s.id}
-                      style={{ flex: 1, padding: '0.65rem', borderRadius: 10, border: 'none', background: responding === s.id ? C.border : `linear-gradient(135deg,${C.purple},${C.blue})`, color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: responding === s.id ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                    >
+                    <button onClick={() => handleSwapResponse(s.id, 'accepted')} disabled={responding === s.id} style={{ flex: 1, padding: '0.65rem', borderRadius: 10, border: 'none', background: responding === s.id ? C.border : `linear-gradient(135deg,${C.purple},${C.blue})`, color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                       <Check size={14} /> {responding === s.id ? 'Wird angenommen...' : 'Annehmen → Chat öffnet sich'}
                     </button>
-                    <button
-                      onClick={() => handleSwapResponse(s.id, 'declined')}
-                      disabled={responding === s.id}
-                      style={{ padding: '0.65rem 1rem', borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}
-                    >
+                    <button onClick={() => handleSwapResponse(s.id, 'declined')} disabled={responding === s.id} style={{ padding: '0.65rem 1rem', borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
                       Ablehnen
                     </button>
                   </div>
@@ -189,9 +199,146 @@ export default function Profile() {
               ))}
             </div>
           )
+        ) : (
+          // HISTORY TAB
+          completedSwaps.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
+              <div style={{ fontSize: '3rem', marginBottom: 12 }}>📖</div>
+              <p style={{ fontWeight: 600 }}>Noch keine abgeschlossenen Tausche</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {completedSwaps.map(s => {
+                const isRequester = s.requester_id === user.id
+                const otherName = isRequester ? s.profiles_owner?.name : s.profiles_requester?.name
+                return (
+                  <Card key={s.id} style={{ padding: '1.2rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <p style={{ fontWeight: 700, color: C.text, fontSize: '0.9rem', marginBottom: 4 }}>
+                          Tausch mit {otherName || 'Nutzer'}
+                        </p>
+                        <p style={{ fontSize: '0.8rem', color: C.muted }}>
+                          📚 {s.books_requested?.title || 'Buch'} ⇄ {s.books_offered?.title || 'Buch'}
+                        </p>
+                        <p style={{ fontSize: '0.72rem', color: C.muted, marginTop: 4 }}>
+                          {new Date(s.created_at).toLocaleDateString('de-DE')}
+                        </p>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.3rem 0.7rem', borderRadius: 100 }}>✓ Abgeschlossen</span>
+                    </div>
+                  </Card>
+                )
+              })}
+            </div>
+          )
         )}
       </div>
+
+      {/* EDIT PROFILE MODAL */}
+      {editOpen && (
+        <EditProfileModal
+          profile={profile}
+          user={user}
+          onClose={() => setEditOpen(false)}
+          onSaved={() => { setEditOpen(false); refreshProfile() }}
+        />
+      )}
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  )
+}
+
+// ── EDIT PROFILE MODAL ────────────────────────────────────────
+function EditProfileModal({ profile, user, onClose, onSaved }) {
+  const [name, setName] = useState(profile?.name || '')
+  const [city, setCity] = useState(profile?.city || '')
+  const [avatarFile, setAvatarFile] = useState(null)
+  const [avatarPreview, setAvatarPreview] = useState(profile?.avatar_url || null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleAvatarChange = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setAvatarFile(file)
+    setAvatarPreview(URL.createObjectURL(file))
+  }
+
+  const handleSave = async () => {
+    if (!name.trim()) { setError('Name darf nicht leer sein.'); return }
+    setSaving(true)
+    setError('')
+
+    let avatar_url = profile?.avatar_url || null
+
+    // Upload new avatar if selected
+    if (avatarFile) {
+      const ext = avatarFile.name.split('.').pop()
+      const filename = `avatars/${user.id}.${ext}`
+      const { error: uploadError } = await supabase.storage
+        .from('book-covers')
+        .upload(filename, avatarFile, { upsert: true })
+      if (!uploadError) {
+        const { data } = supabase.storage.from('book-covers').getPublicUrl(filename)
+        avatar_url = data.publicUrl
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ name: name.trim(), city: city.trim() || null, avatar_url })
+      .eq('id', user.id)
+
+    setSaving(false)
+    if (updateError) { setError('Fehler beim Speichern.'); return }
+    onSaved()
+  }
+
+  const inputStyle = { width: '100%', padding: '0.75rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 10, outline: 'none', fontSize: '0.9rem', color: C.text, background: C.bg, marginBottom: 12 }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(17,24,39,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.surface, borderRadius: 24, padding: '2rem', maxWidth: 420, width: '100%', boxShadow: '0 32px 80px rgba(0,0,0,0.25)', position: 'relative' }}>
+        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, width: 32, height: 32, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <X size={16} color={C.muted} />
+        </button>
+
+        <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: C.text, marginBottom: 20 }}>Profil bearbeiten</h2>
+
+        {/* Avatar upload */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+          <div style={{ position: 'relative' }}>
+            {avatarPreview ? (
+              <img src={avatarPreview} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} />
+            ) : (
+              <Avatar letter={name || '?'} size={72} />
+            )}
+          </div>
+          <label style={{ cursor: 'pointer' }}>
+            <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
+            <div style={{ padding: '0.5rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 10, fontSize: '0.85rem', fontWeight: 500, color: C.muted, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Camera size={14} /> Foto ändern
+            </div>
+          </label>
+        </div>
+
+        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#374151', marginBottom: 5 }}>Name *</label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Dein Name" style={inputStyle} />
+
+        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#374151', marginBottom: 5 }}>Stadt</label>
+        <input value={city} onChange={e => setCity(e.target.value)} placeholder="z.B. Berlin" style={{ ...inputStyle, marginBottom: 16 }} />
+
+        {error && (
+          <div style={{ background: '#FEE2E2', color: '#EF4444', padding: '0.65rem 1rem', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
+
+        <PrimaryBtn onClick={handleSave} disabled={saving} style={{ width: '100%', borderRadius: 12, padding: '0.85rem' }} icon={Check}>
+          {saving ? 'Wird gespeichert...' : 'Speichern'}
+        </PrimaryBtn>
+      </div>
     </div>
   )
 }
