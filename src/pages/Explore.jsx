@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, MapPin } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/AuthContext'
 import { C, Card, CondBadge, Avatar, Spinner } from '../components/UI'
 
 const COLORS = [
@@ -19,6 +20,7 @@ const FILTERS = ['Alle', 'Roman', 'Sachbuch', 'Schulbuch', 'Fantasy', 'Krimi', '
 
 export default function Explore() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [books, setBooks] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -41,14 +43,17 @@ export default function Explore() {
     setLoading(false)
   }
 
-  const filtered = books.filter(b =>
-    b.title?.toLowerCase().includes(search.toLowerCase()) ||
-    b.author?.toLowerCase().includes(search.toLowerCase())
-  )
+  // Bug 1 fix: filter out own books + search filter
+  const filtered = books.filter(b => {
+    const notOwn = !user || b.user_id !== user.id
+    const matchSearch = b.title?.toLowerCase().includes(search.toLowerCase()) ||
+      b.author?.toLowerCase().includes(search.toLowerCase())
+    return notOwn && matchSearch
+  })
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg }}>
-      {/* Search + filters sticky */}
+      {/* Search + filters */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '1rem 1.5rem', position: 'sticky', top: 60, zIndex: 50 }}>
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: C.bg, border: `1.5px solid ${C.border}`, borderRadius: 12, padding: '0.6rem 1rem', marginBottom: 12 }}>
@@ -79,7 +84,7 @@ export default function Explore() {
           <div style={{ textAlign: 'center', padding: '4rem', color: C.muted }}>
             <div style={{ fontSize: '3rem', marginBottom: 12 }}>📭</div>
             <p style={{ fontWeight: 600, marginBottom: 6 }}>Keine Bücher gefunden</p>
-            <p style={{ fontSize: '0.85rem' }}>Versuche eine andere Suchanfrage</p>
+            <p style={{ fontSize: '0.85rem' }}>Versuche eine andere Suchanfrage oder Kategorie</p>
           </div>
         ) : (
           <>
@@ -100,10 +105,17 @@ export default function Explore() {
                       <Avatar letter={b.profiles?.name || '?'} size={22} />
                       <div>
                         <div style={{ fontSize: '0.72rem', fontWeight: 600, color: C.text }}>{b.profiles?.name}</div>
-                        {b.profiles?.city && <div style={{ fontSize: '0.68rem', color: C.muted, display: 'flex', alignItems: 'center', gap: 2 }}><MapPin size={9} />{b.profiles.city}</div>}
+                        {b.profiles?.city && (
+                          <div style={{ fontSize: '0.68rem', color: C.muted, display: 'flex', alignItems: 'center', gap: 2 }}>
+                            <MapPin size={9} />{b.profiles.city}
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <button onClick={e => { e.stopPropagation(); navigate(`/book/${b.id}`) }} style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: C.purple }}>
+                    <button
+                      onClick={e => { e.stopPropagation(); navigate(`/book/${b.id}`) }}
+                      style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: C.purple }}
+                    >
                       ⇄ Tausch anbieten
                     </button>
                   </div>
