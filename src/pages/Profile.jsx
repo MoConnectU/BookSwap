@@ -37,7 +37,7 @@ export default function Profile() {
         .select('*, books!requested_book_id(title, author), profiles!requester_id(name, avatar_url)')
         .eq('owner_id', user.id).eq('status', 'pending'),
       supabase.from('swap_requests')
-        .select('*, books!requested_book_id(title), books!offered_book_id(title), profiles!requester_id(name), profiles!owner_id(name)')
+        .select('*, requested:books!requested_book_id(title), offered:books!offered_book_id(title), requester:profiles!requester_id(name), owner:profiles!owner_id(name)')
         .or(`requester_id.eq.${user.id},owner_id.eq.${user.id}`)
         .eq('status', 'completed')
         .order('created_at', { ascending: false })
@@ -210,7 +210,7 @@ export default function Profile() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {completedSwaps.map(s => {
                 const isRequester = s.requester_id === user.id
-                const otherName = isRequester ? s.profiles_owner?.name : s.profiles_requester?.name
+                const otherName = isRequester ? s.owner?.name : s.requester?.name
                 return (
                   <Card key={s.id} style={{ padding: '1.2rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -219,7 +219,7 @@ export default function Profile() {
                           Tausch mit {otherName || 'Nutzer'}
                         </p>
                         <p style={{ fontSize: '0.8rem', color: C.muted }}>
-                          📚 {s.books_requested?.title || 'Buch'} ⇄ {s.books_offered?.title || 'Buch'}
+                          📚 {s.requested?.title || 'Buch'} ⇄ {s.offered?.title || 'Buch'}
                         </p>
                         <p style={{ fontSize: '0.72rem', color: C.muted, marginTop: 4 }}>
                           {new Date(s.created_at).toLocaleDateString('de-DE')}
