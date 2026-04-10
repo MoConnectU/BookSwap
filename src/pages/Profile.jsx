@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Check, LogOut, Trash2, MessageCircle, Edit2, Camera, X, Star } from 'lucide-react'
+import { Plus, Check, LogOut, Trash2, MessageCircle, Edit2, Camera, X, Star, Pencil, Upload } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { C, Card, Avatar, Badge, PrimaryBtn, Spinner } from '../components/UI'
@@ -13,6 +13,9 @@ const COLORS = [
   'linear-gradient(135deg,#D97706,#FCD34D)',
 ]
 
+const CONDITIONS = ['Wie neu', 'Sehr gut', 'Gut', 'Akzeptabel']
+const CATEGORIES = ['Roman', 'Sachbuch', 'Schulbuch', 'Studium / Fachbuch', 'Krimi / Thriller', 'Fantasy / SciFi', 'Kinder / Jugend', 'Ratgeber', 'Sonstiges']
+
 function ratingDisplay(r) {
   if (!r || r === 0) return 'Neu'
   return r.toFixed(1) + '★'
@@ -24,14 +27,15 @@ export default function Profile() {
   const [myBooks, setMyBooks] = useState([])
   const [swapRequests, setSwapRequests] = useState([])
   const [completedSwaps, setCompletedSwaps] = useState([])
-  const [myReviews, setMyReviews] = useState([])     // reviews I GAVE
-  const [receivedReviews, setReceivedReviews] = useState([]) // reviews I RECEIVED
+  const [myReviews, setMyReviews] = useState([])
+  const [receivedReviews, setReceivedReviews] = useState([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('books')
   const [deleting, setDeleting] = useState(null)
   const [responding, setResponding] = useState(null)
   const [editOpen, setEditOpen] = useState(false)
-  const [reviewTarget, setReviewTarget] = useState(null) // { otherUser, swapId }
+  const [editingBook, setEditingBook] = useState(null) // book being edited
+  const [reviewTarget, setReviewTarget] = useState(null)
 
   const fetchMyData = useCallback(async () => {
     if (!user) return
@@ -43,27 +47,16 @@ export default function Profile() {
       { data: reviews },
       { data: received }
     ] = await Promise.all([
-      supabase.from('books')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false }),
+      supabase.from('books').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
       supabase.from('swap_requests')
         .select('*, books!requested_book_id(title, author), profiles!requester_id(name, avatar_url)')
-        .eq('owner_id', user.id)
-        .eq('status', 'pending'),
+        .eq('owner_id', user.id).eq('status', 'pending'),
       supabase.from('swap_requests')
         .select('id, created_at, requester_id, owner_id, requested:books!requested_book_id(title), offered:books!offered_book_id(title), requester:profiles!requester_id(id, name, avatar_url), owner:profiles!owner_id(id, name, avatar_url)')
         .or(`requester_id.eq.${user.id},owner_id.eq.${user.id}`)
-        .eq('status', 'completed')
-        .order('created_at', { ascending: false }),
-      supabase.from('reviews')
-        .select('*, reviewer:profiles!reviewer_id(name, avatar_url)')
-        .eq('reviewer_id', user.id)
-        .order('created_at', { ascending: false }),
-      supabase.from('reviews')
-        .select('*, reviewer:profiles!reviewer_id(name, avatar_url)')
-        .eq('reviewed_id', user.id)
-        .order('created_at', { ascending: false })
+        .eq('status', 'completed').order('created_at', { ascending: false }),
+      supabase.from('reviews').select('*, reviewer:profiles!reviewer_id(name, avatar_url)').eq('reviewer_id', user.id).order('created_at', { ascending: false }),
+      supabase.from('reviews').select('*, reviewer:profiles!reviewer_id(name, avatar_url)').eq('reviewed_id', user.id).order('created_at', { ascending: false })
     ])
     setMyBooks(books || [])
     setSwapRequests(swaps || [])
@@ -94,16 +87,11 @@ export default function Profile() {
   const handleSwapResponse = async (swapId, status) => {
     setResponding(swapId)
     await supabase.from('swap_requests').update({ status }).eq('id', swapId)
-    
-    // Send email notification
     if (status === 'accepted') {
       const { data: { session } } = await supabase.auth.getSession()
       await fetch(`https://jtncwqysnnqvkixgvgyn.supabase.co/functions/v1/send-notification`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        },
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
         body: JSON.stringify({ type: 'request_accepted', swapRequestId: swapId })
       })
       setTimeout(() => navigate('/chat'), 800)
@@ -119,16 +107,11 @@ export default function Profile() {
   }
 
   const handleSignOut = async () => { await signOut(); navigate('/') }
+
   const name = profile?.name || user?.email?.split('@')[0] || 'Leser'
-
-  // Check if user already reviewed a swap
   const hasReviewed = (swapId) => myReviews.some(r => r.swap_id === swapId)
-
-  // Get the other person in a swap
   const getOtherPerson = (swap) => {
-    if (swap.requester_id === user.id) {
-      return { ...swap.owner, id: swap.owner_id }
-    }
+    if (swap.requester_id === user.id) return { ...swap.owner, id: swap.owner_id }
     return { ...swap.requester, id: swap.requester_id }
   }
 
@@ -156,11 +139,7 @@ export default function Profile() {
                 {profile?.city ? `📍 ${profile.city} · ` : ''}{user?.email}
               </p>
               <div style={{ display: 'flex', gap: 20, marginTop: 10 }}>
-                {[
-                  [myBooks.length, 'Bücher'],
-                  [profile?.trades_count || 0, 'Tausche'],
-                  [ratingDisplay(profile?.rating), 'Bewertung']
-                ].map(([n, l]) => (
+                {[[myBooks.length, 'Bücher'], [profile?.trades_count || 0, 'Tausche'], [ratingDisplay(profile?.rating), 'Bewertung']].map(([n, l]) => (
                   <div key={l}>
                     <div style={{ fontWeight: 900, fontSize: '1.2rem', color: '#fff' }}>{n}</div>
                     <div style={{ fontSize: '0.7rem', opacity: 0.65, color: '#fff' }}>{l}</div>
@@ -190,11 +169,7 @@ export default function Profile() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}>
-          {[
-            ['books', 'Mein Regal'],
-            ['swaps', `Anfragen (${swapRequests.length})`],
-            ['history', `Verlauf (${completedSwaps.length})`]
-          ].map(([id, label]) => (
+          {[['books', 'Mein Regal'], ['swaps', `Anfragen (${swapRequests.length})`], ['history', `Verlauf (${completedSwaps.length})`]].map(([id, label]) => (
             <div key={id} onClick={() => setTab(id)} style={{ padding: '0.7rem 1.1rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', color: tab === id ? C.text : C.muted, borderBottom: `2px solid ${tab === id ? C.purple : 'transparent'}`, marginBottom: -1, position: 'relative', whiteSpace: 'nowrap' }}>
               {label}
               {id === 'swaps' && swapRequests.length > 0 && (
@@ -228,12 +203,23 @@ export default function Profile() {
                       <Check size={11} /> {b.is_available ? 'Online' : 'Getauscht'} · {b.condition}
                     </div>
                     {b.is_available && (
-                      <button
-                        onClick={() => handleDeleteBook(b.id, b.cover_url)}
-                        disabled={deleting === b.id}
-                        style={{ width: '100%', padding: '0.45rem', borderRadius: 8, border: '1px solid #FEE2E2', background: '#FFF5F5', color: '#EF4444', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                        <Trash2 size={12} />{deleting === b.id ? 'Löschen...' : 'Löschen'}
-                      </button>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {/* Edit button */}
+                        <button
+                          onClick={() => setEditingBook(b)}
+                          style={{ flex: 1, padding: '0.45rem', borderRadius: 8, border: `1px solid ${C.purpleMid}`, background: C.purpleLight, color: C.purple, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                        >
+                          <Pencil size={11} /> Bearbeiten
+                        </button>
+                        {/* Delete button */}
+                        <button
+                          onClick={() => handleDeleteBook(b.id, b.cover_url)}
+                          disabled={deleting === b.id}
+                          style={{ padding: '0.45rem 0.55rem', borderRadius: 8, border: '1px solid #FEE2E2', background: '#FFF5F5', color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     )}
                   </div>
                 </Card>
@@ -241,7 +227,7 @@ export default function Profile() {
             </div>
           )
         ) : tab === 'swaps' ? (
-          // ── SWAP REQUESTS ─────────────────────────────────────
+          // ── SWAP REQUESTS ──────────────────────────────────────
           swapRequests.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>🤝</div>
@@ -261,16 +247,10 @@ export default function Profile() {
                     <Badge>Neu</Badge>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={() => handleSwapResponse(s.id, 'accepted')}
-                      disabled={responding === s.id}
-                      style={{ flex: 1, padding: '0.65rem', borderRadius: 10, border: 'none', background: responding === s.id ? C.border : `linear-gradient(135deg,${C.purple},${C.blue})`, color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    <button onClick={() => handleSwapResponse(s.id, 'accepted')} disabled={responding === s.id} style={{ flex: 1, padding: '0.65rem', borderRadius: 10, border: 'none', background: responding === s.id ? C.border : `linear-gradient(135deg,${C.purple},${C.blue})`, color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                       <Check size={14} />{responding === s.id ? 'Wird angenommen...' : 'Annehmen → Chat öffnet sich'}
                     </button>
-                    <button
-                      onClick={() => handleSwapResponse(s.id, 'declined')}
-                      disabled={responding === s.id}
-                      style={{ padding: '0.65rem 1rem', borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
+                    <button onClick={() => handleSwapResponse(s.id, 'declined')} disabled={responding === s.id} style={{ padding: '0.65rem 1rem', borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
                       Ablehnen
                     </button>
                   </div>
@@ -279,7 +259,7 @@ export default function Profile() {
             </div>
           )
         ) : (
-          // ── HISTORY TAB ───────────────────────────────────────
+          // ── HISTORY TAB ────────────────────────────────────────
           completedSwaps.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>📖</div>
@@ -293,25 +273,14 @@ export default function Profile() {
                 const alreadyReviewed = hasReviewed(s.id)
                 return (
                   <Card key={s.id} style={{ padding: '1.2rem' }}>
-                    {/* Swap info */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                       <div>
-                        <p style={{ fontWeight: 700, color: C.text, fontSize: '0.9rem', marginBottom: 4 }}>
-                          Tausch mit {otherPerson?.name || 'Nutzer'}
-                        </p>
-                        <p style={{ fontSize: '0.8rem', color: C.muted }}>
-                          📚 {s.requested?.title || '?'} ⇄ {s.offered?.title || '?'}
-                        </p>
-                        <p style={{ fontSize: '0.72rem', color: C.muted, marginTop: 4 }}>
-                          {new Date(s.created_at).toLocaleDateString('de-DE')}
-                        </p>
+                        <p style={{ fontWeight: 700, color: C.text, fontSize: '0.9rem', marginBottom: 4 }}>Tausch mit {otherPerson?.name || 'Nutzer'}</p>
+                        <p style={{ fontSize: '0.8rem', color: C.muted }}>📚 {s.requested?.title || '?'} ⇄ {s.offered?.title || '?'}</p>
+                        <p style={{ fontSize: '0.72rem', color: C.muted, marginTop: 4 }}>{new Date(s.created_at).toLocaleDateString('de-DE')}</p>
                       </div>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.3rem 0.7rem', borderRadius: 100, whiteSpace: 'nowrap' }}>
-                        ✓ Abgeschlossen
-                      </span>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.3rem 0.7rem', borderRadius: 100, whiteSpace: 'nowrap' }}>✓ Abgeschlossen</span>
                     </div>
-
-                    {/* Review received */}
                     {review && (
                       <div style={{ background: C.bg, borderRadius: 10, padding: '0.75rem', display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10 }}>
                         <Avatar letter={review.reviewer?.name || '?'} size={32} src={review.reviewer?.avatar_url} />
@@ -319,29 +288,19 @@ export default function Profile() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                             <span style={{ fontSize: '0.78rem', fontWeight: 600, color: C.text }}>{review.reviewer?.name}</span>
                             <div style={{ display: 'flex', gap: 2 }}>
-                              {[1,2,3,4,5].map(s => (
-                                <Star key={s} size={11} color={C.warning} fill={s <= review.rating ? C.warning : 'transparent'} />
-                              ))}
+                              {[1,2,3,4,5].map(s => <Star key={s} size={11} color={C.warning} fill={s <= review.rating ? C.warning : 'transparent'} />)}
                             </div>
                           </div>
                           {review.comment && <p style={{ fontSize: '0.8rem', color: C.muted }}>{review.comment}</p>}
                         </div>
                       </div>
                     )}
-
-                    {/* Review button — only if not yet reviewed */}
                     {!alreadyReviewed && otherPerson && (
-                      <button
-                        onClick={() => setReviewTarget({ otherUser: otherPerson, swapId: s.id })}
-                        style={{ width: '100%', padding: '0.6rem', borderRadius: 10, border: `1.5px solid ${C.warning}`, background: 'rgba(245,158,11,0.06)', color: C.warning, fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <button onClick={() => setReviewTarget({ otherUser: otherPerson, swapId: s.id })} style={{ width: '100%', padding: '0.6rem', borderRadius: 10, border: `1.5px solid ${C.warning}`, background: 'rgba(245,158,11,0.06)', color: C.warning, fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                         <Star size={14} fill={C.warning} color={C.warning} /> {otherPerson?.name} bewerten
                       </button>
                     )}
-                    {alreadyReviewed && (
-                      <p style={{ fontSize: '0.75rem', color: C.success, textAlign: 'center', marginTop: 4 }}>
-                        ✓ Du hast bereits bewertet
-                      </p>
-                    )}
+                    {alreadyReviewed && <p style={{ fontSize: '0.75rem', color: C.success, textAlign: 'center', marginTop: 4 }}>✓ Du hast bereits bewertet</p>}
                   </Card>
                 )
               })}
@@ -352,22 +311,22 @@ export default function Profile() {
 
       {/* Edit Profile Modal */}
       {editOpen && (
-        <EditProfileModal
-          profile={profile}
+        <EditProfileModal profile={profile} user={user} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); refreshProfile() }} />
+      )}
+
+      {/* Edit Book Modal */}
+      {editingBook && (
+        <EditBookModal
+          book={editingBook}
           user={user}
-          onClose={() => setEditOpen(false)}
-          onSaved={() => { setEditOpen(false); refreshProfile() }}
+          onClose={() => setEditingBook(null)}
+          onSaved={() => { setEditingBook(null); fetchMyData() }}
         />
       )}
 
-      {/* Review Modal — only opened from history tab */}
+      {/* Review Modal */}
       {reviewTarget && (
-        <ReviewModal
-          otherUser={reviewTarget.otherUser}
-          swapId={reviewTarget.swapId}
-          onClose={() => setReviewTarget(null)}
-          onSaved={handleReviewSaved}
-        />
+        <ReviewModal otherUser={reviewTarget.otherUser} swapId={reviewTarget.swapId} onClose={() => setReviewTarget(null)} onSaved={handleReviewSaved} />
       )}
 
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
@@ -375,7 +334,152 @@ export default function Profile() {
   )
 }
 
-// ── EDIT PROFILE MODAL ────────────────────────────────────────
+// ── EDIT BOOK MODAL ────────────────────────────────────────────
+function EditBookModal({ book, user, onClose, onSaved }) {
+  const [title, setTitle] = useState(book.title || '')
+  const [author, setAuthor] = useState(book.author || '')
+  const [isbn, setIsbn] = useState(book.isbn || '')
+  const [category, setCategory] = useState(book.category || 'Roman')
+  const [condition, setCondition] = useState(book.condition || 'Gut')
+  const [description, setDescription] = useState(book.description || '')
+  const [coverFile, setCoverFile] = useState(null)
+  const [coverPreview, setCoverPreview] = useState(book.cover_url || null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
+  const handlePhoto = (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setCoverFile(file)
+    setCoverPreview(URL.createObjectURL(file))
+  }
+
+  const handleSave = async () => {
+    if (!title.trim() || !author.trim()) { setError('Titel und Autor sind Pflichtfelder.'); return }
+    setLoading(true)
+    setError('')
+
+    let cover_url = book.cover_url
+    if (coverFile) {
+      const ext = coverFile.name.split('.').pop()
+      const filename = `${user.id}/${Date.now()}.${ext}`
+      const { error: uploadError } = await supabase.storage.from('book-covers').upload(filename, coverFile)
+      if (!uploadError) {
+        const { data } = supabase.storage.from('book-covers').getPublicUrl(filename)
+        cover_url = data.publicUrl
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from('books')
+      .update({ title: title.trim(), author: author.trim(), isbn: isbn.trim() || null, category, condition, description: description.trim() || null, cover_url })
+      .eq('id', book.id)
+      .eq('user_id', user.id)
+
+    setLoading(false)
+    if (updateError) { setError('Fehler beim Speichern: ' + updateError.message); return }
+    onSaved()
+    onClose()
+  }
+
+  const inputStyle = { width: '100%', padding: '0.75rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 10, outline: 'none', fontSize: '0.9rem', color: C.text, background: C.bg, boxSizing: 'border-box' }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.bg, borderRadius: 20, width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.25)' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem', borderBottom: `1px solid ${C.border}`, position: 'sticky', top: 0, background: C.bg, zIndex: 1 }}>
+          <span style={{ fontWeight: 800, fontSize: '1.05rem', color: C.text }}>Buch bearbeiten</span>
+          <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: '50%', border: 'none', background: C.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <X size={18} color={C.muted} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Cover photo */}
+          <label style={{ display: 'block', cursor: 'pointer' }}>
+            <input type="file" accept="image/*" onChange={handlePhoto} style={{ display: 'none' }} />
+            {coverPreview ? (
+              <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', height: 180 }}>
+                <img src={coverPreview} alt="Cover" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <Upload size={22} color="#fff" />
+                  <span style={{ color: '#fff', fontSize: '0.8rem', fontWeight: 600 }}>Foto ändern</span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ border: `2px dashed ${C.purpleMid}`, borderRadius: 14, padding: '2rem', textAlign: 'center', background: C.purpleLight }}>
+                <Upload size={22} color={C.purple} style={{ margin: '0 auto 8px' }} />
+                <p style={{ fontWeight: 700, color: C.purple, marginBottom: 4, fontSize: '0.9rem' }}>Buchfoto hochladen</p>
+                <p style={{ fontSize: '0.78rem', color: C.muted }}>JPG oder PNG · max. 5 MB</p>
+              </div>
+            )}
+          </label>
+
+          {/* Titel */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Titel *</label>
+            <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="Buchtitel" />
+          </div>
+
+          {/* Autor */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Autor *</label>
+            <input style={inputStyle} value={author} onChange={e => setAuthor(e.target.value)} placeholder="Autor" />
+          </div>
+
+          {/* ISBN */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>ISBN (optional)</label>
+            <input style={inputStyle} value={isbn} onChange={e => setIsbn(e.target.value)} placeholder="978-3-..." />
+          </div>
+
+          {/* Kategorie */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Kategorie</label>
+            <select style={{ ...inputStyle, cursor: 'pointer' }} value={category} onChange={e => setCategory(e.target.value)}>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* Zustand */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 8 }}>Zustand</label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {CONDITIONS.map(c => (
+                <button key={c} onClick={() => setCondition(c)} style={{ padding: '0.5rem 1rem', borderRadius: 8, border: `1.5px solid ${condition === c ? C.purple : C.border}`, background: condition === c ? C.purpleLight : 'transparent', color: condition === c ? C.purple : C.muted, fontWeight: condition === c ? 700 : 400, fontSize: '0.82rem', cursor: 'pointer', transition: 'all 0.15s' }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Beschreibung */}
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Beschreibung (optional)</label>
+            <textarea style={{ ...inputStyle, height: 90, resize: 'vertical' }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Kurze Beschreibung..." />
+          </div>
+
+          {error && <div style={{ background: '#FEE2E2', color: '#EF4444', padding: '0.65rem 1rem', borderRadius: 8, fontSize: '0.82rem' }}>{error}</div>}
+
+          <PrimaryBtn onClick={handleSave} disabled={loading} style={{ width: '100%', padding: '1rem', borderRadius: 14, fontSize: '0.95rem' }} icon={loading ? null : Check}>
+            {loading ? 'Wird gespeichert...' : 'Änderungen speichern'}
+          </PrimaryBtn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── EDIT PROFILE MODAL ─────────────────────────────────────────
 function EditProfileModal({ profile, user, onClose, onSaved }) {
   const [name, setName] = useState(profile?.name || '')
   const [city, setCity] = useState(profile?.city || '')
@@ -399,17 +503,13 @@ function EditProfileModal({ profile, user, onClose, onSaved }) {
     if (avatarFile) {
       const ext = avatarFile.name.split('.').pop()
       const filename = `avatars/${user.id}.${ext}`
-      const { error: uploadError } = await supabase.storage
-        .from('book-covers')
-        .upload(filename, avatarFile, { upsert: true })
+      const { error: uploadError } = await supabase.storage.from('book-covers').upload(filename, avatarFile, { upsert: true })
       if (!uploadError) {
         const { data } = supabase.storage.from('book-covers').getPublicUrl(filename)
         avatar_url = data.publicUrl
       }
     }
-    const { error: updateError } = await supabase.from('profiles')
-      .update({ name: name.trim(), city: city.trim() || null, avatar_url })
-      .eq('id', user.id)
+    const { error: updateError } = await supabase.from('profiles').update({ name: name.trim(), city: city.trim() || null, avatar_url }).eq('id', user.id)
     setSaving(false)
     if (updateError) { setError('Fehler beim Speichern.'); return }
     onSaved()
@@ -425,11 +525,7 @@ function EditProfileModal({ profile, user, onClose, onSaved }) {
         </button>
         <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: C.text, marginBottom: 20 }}>Profil bearbeiten</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-          {avatarPreview ? (
-            <img src={avatarPreview} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} />
-          ) : (
-            <Avatar letter={name || '?'} size={72} />
-          )}
+          {avatarPreview ? <img src={avatarPreview} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} /> : <Avatar letter={name || '?'} size={72} />}
           <label style={{ cursor: 'pointer' }}>
             <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
             <div style={{ padding: '0.5rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 10, fontSize: '0.85rem', fontWeight: 500, color: C.muted, display: 'flex', alignItems: 'center', gap: 6 }}>
