@@ -82,13 +82,20 @@ export default function BookDetail({ onOpenAuth }) {
   const handleSwapConfirm = async () => {
     if (!selectedBook) return
     setSwapLoading(true)
-    const { error } = await supabase.from('swap_requests').insert({
+    const { data: newSwap, error } = await supabase.from('swap_requests').insert({
       requester_id: user.id,
       owner_id: book.profiles.id,
-      requested_book_id: book.id,  // Bug 4 fix: correct book id
+      requested_book_id: book.id,
       offered_book_id: selectedBook.id,
       status: 'pending'
-    })
+    }).select().single()
+    
+    // Send email notification to book owner
+    if (!error && newSwap) {
+      await supabase.functions.invoke('send-notification', {
+        body: { type: 'new_request', swapRequestId: newSwap.id }
+      })
+    }
     setSwapLoading(false)
     if (!error) { setSwapOpen(false); setSuccess(true) }
   }
