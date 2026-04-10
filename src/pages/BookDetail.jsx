@@ -92,8 +92,13 @@ export default function BookDetail({ onOpenAuth }) {
     
     // Send email notification to book owner
     if (!error && newSwap) {
-      await supabase.functions.invoke('send-notification', {
-        body: { type: 'new_request', swapRequestId: newSwap.id }
+      fetch(`https://jtncwqysnnqvkixgvgyn.supabase.co/functions/v1/send-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({ type: 'new_request', swapRequestId: newSwap.id })
       })
     }
     setSwapLoading(false)
