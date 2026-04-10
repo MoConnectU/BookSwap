@@ -10,6 +10,7 @@ import Upload from './pages/Upload'
 import Profile from './pages/Profile'
 import Chat from './pages/Chat'
 import PublicProfile from './pages/PublicProfile'
+import ResetPassword from './pages/ResetPassword'
 
 export default function App() {
   const [authOpen, setAuthOpen] = useState(false)
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="/profile" element={<Profile />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/user/:id" element={<PublicProfile />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
         </Routes>
         {authOpen && (
           <AuthModal contextMsg={authContext} onClose={() => setAuthOpen(false)} />
