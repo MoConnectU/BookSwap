@@ -94,8 +94,15 @@ export default function Profile() {
   const handleSwapResponse = async (swapId, status) => {
     setResponding(swapId)
     await supabase.from('swap_requests').update({ status }).eq('id', swapId)
+    
+    // Send email notification
+    if (status === 'accepted') {
+      await supabase.functions.invoke('send-notification', {
+        body: { type: 'request_accepted', swapRequestId: swapId }
+      })
+      setTimeout(() => navigate('/chat'), 800)
+    }
     setResponding(null)
-    if (status === 'accepted') setTimeout(() => navigate('/chat'), 800)
     fetchMyData()
   }
 
