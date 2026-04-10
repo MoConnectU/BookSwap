@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, Send, Check, Package } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
@@ -7,14 +7,14 @@ import { C, Avatar, Spinner } from '../components/UI'
 
 export default function Chat() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const [conversations, setConversations] = useState([])
-  const [convDetails, setConvDetails] = useState({}) // { [convId]: { otherUser, bookTitle } }
+  const [convDetails, setConvDetails] = useState({})
   const [activeConv, setActiveConv] = useState(null)
   const [messages, setMessages] = useState([])
   const [otherUser, setOtherUser] = useState(null)
   const [bookTitle, setBookTitle] = useState('')
-  const [swapId, setSwapId] = useState(null)
   const [newMsg, setNewMsg] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
@@ -26,6 +26,19 @@ export default function Chat() {
     if (!user) { navigate('/'); return }
     fetchConversations()
   }, [user])
+
+  // Direkt eine Konversation öffnen wenn ?conv=ID in der URL steht
+  useEffect(() => {
+    const convId = searchParams.get('conv')
+    if (convId && conversations.length > 0) {
+      const conv = conversations.find(c => c.id === convId)
+      if (conv) {
+        setActiveConv(conv)
+        setOtherUser(null)
+        setBookTitle('')
+      }
+    }
+  }, [searchParams, conversations])
 
   useEffect(() => {
     if (!activeConv) return
@@ -53,16 +66,12 @@ export default function Chat() {
       .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
       .order('updated_at', { ascending: false })
 
-    if (error) {
-      setError('Nachrichten konnten nicht geladen werden.')
-      setLoading(false)
-      return
-    }
+    if (error) { setError('Nachrichten konnten nicht geladen werden.'); setLoading(false); return }
 
     const convs = data || []
     setConversations(convs)
 
-    // Batch load all conv details in parallel instead of one-by-one
+    // Batch load alle Details auf einmal
     if (convs.length > 0) {
       const otherUserIds = convs.map(c => c.user1_id === user.id ? c.user2_id : c.user1_id)
       const swapIds = convs.filter(c => c.swap_request_id).map(c => c.swap_request_id)
@@ -99,7 +108,6 @@ export default function Chat() {
       const { data: s } = await supabase.from('swap_requests')
         .select('id, books!requested_book_id(title)').eq('id', conv.swap_request_id).single()
       setBookTitle(s?.books?.title || 'Buch')
-      setSwapId(s?.id || null)
     }
   }
 
@@ -126,15 +134,10 @@ export default function Chat() {
       if (activeConv.swap_request_id) {
         const { data: swap, error: swapError } = await supabase.from('swap_requests')
           .select('*').eq('id', activeConv.swap_request_id).single()
-
         if (swapError || !swap) throw new Error('Tausch nicht gefunden')
-
         await supabase.from('swap_requests').update({ status: 'completed' }).eq('id', swap.id)
-
         if (swap.requested_book_id) await supabase.from('books').update({ is_available: false }).eq('id', swap.requested_book_id)
         if (swap.offered_book_id) await supabase.from('books').update({ is_available: false }).eq('id', swap.offered_book_id)
-
-        // increment_trades — Fehler hier ist nicht kritisch
         try {
           await supabase.rpc('increment_trades', { user_id: swap.requester_id })
           await supabase.rpc('increment_trades', { user_id: swap.owner_id })
@@ -142,16 +145,22 @@ export default function Chat() {
           console.warn('Tausch-Zähler konnte nicht aktualisiert werden:', rpcErr)
         }
       }
-
       await supabase.from('conversations').update({ status: 'completed' }).eq('id', activeConv.id)
       setActiveConv(prev => ({ ...prev, status: 'completed' }))
       fetchConversations()
       navigate('/profile')
     } catch (err) {
-      alert('Fehler beim Abschließen des Tauschs. Bitte versuche es erneut.')
+      alert('Fehler beim Abschließen. Bitte versuche es erneut.')
     } finally {
       setCompleting(false)
     }
+  }
+
+  const handleBackToList = () => {
+    setActiveConv(null)
+    setOtherUser(null)
+    // URL-Parameter entfernen
+    navigate('/chat', { replace: true })
   }
 
   // ── CONVERSATION LIST ──────────────────────────────────────────
@@ -171,9 +180,7 @@ export default function Chat() {
             <div style={{ textAlign: 'center', padding: '4rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>😕</div>
               <p style={{ fontWeight: 600, marginBottom: 8, color: C.text }}>{error}</p>
-              <button onClick={fetchConversations} style={{ padding: '0.6rem 1.5rem', borderRadius: 10, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.purple, cursor: 'pointer', fontWeight: 600 }}>
-                Erneut versuchen
-              </button>
+              <button onClick={fetchConversations} style={{ padding: '0.6rem 1.5rem', borderRadius: 10, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.purple, cursor: 'pointer', fontWeight: 600 }}>Erneut versuchen</button>
             </div>
           ) : conversations.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '4rem', color: C.muted }}>
@@ -184,7 +191,8 @@ export default function Chat() {
           ) : conversations.map(conv => {
             const details = convDetails[conv.id] || {}
             return (
-              <div key={conv.id} onClick={() => { setActiveConv(conv); setOtherUser(null); setBookTitle(''); setSwapId(null) }}
+              <div key={conv.id}
+                onClick={() => { setActiveConv(conv); setOtherUser(null); setBookTitle('') }}
                 style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: '1rem 1.2rem', marginBottom: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
                 <Avatar letter={details.otherUser?.name || '?'} size={46} src={details.otherUser?.avatar_url} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -208,7 +216,7 @@ export default function Chat() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: C.bg }}>
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-        <button onClick={() => { setActiveConv(null); setOtherUser(null) }} style={{ width: 36, height: 36, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <button onClick={handleBackToList} style={{ width: 36, height: 36, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <ChevronLeft size={20} color={C.muted} />
         </button>
         <Avatar letter={otherUser?.name || '?'} size={36} src={otherUser?.avatar_url} />
@@ -217,9 +225,7 @@ export default function Chat() {
           <div style={{ fontSize: '0.72rem', color: C.muted }}>📚 {bookTitle || '...'}</div>
         </div>
         {isCompleted && (
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.4rem 0.8rem', borderRadius: 100 }}>
-            ✓ Abgeschlossen
-          </span>
+          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.4rem 0.8rem', borderRadius: 100 }}>✓ Abgeschlossen</span>
         )}
       </div>
 
