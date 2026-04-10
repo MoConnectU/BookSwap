@@ -97,8 +97,13 @@ export default function Profile() {
     
     // Send email notification
     if (status === 'accepted') {
-      await supabase.functions.invoke('send-notification', {
-        body: { type: 'request_accepted', swapRequestId: swapId }
+      fetch(`https://jtncwqysnnqvkixgvgyn.supabase.co/functions/v1/send-notification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({ type: 'request_accepted', swapRequestId: swapId })
       })
       setTimeout(() => navigate('/chat'), 800)
     }
