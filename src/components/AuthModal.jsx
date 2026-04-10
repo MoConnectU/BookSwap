@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X } from 'lucide-react'
 import { BookOpen } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
+import { supabase } from '../lib/supabase'
 import { C, PrimaryBtn, GoogleIcon, Input } from './UI'
 
 export default function AuthModal({ onClose, contextMsg }) {
@@ -18,6 +19,17 @@ export default function AuthModal({ onClose, contextMsg }) {
     setLoading(true)
     await signInWithGoogle()
     // Google redirects away, so no need to close
+  }
+
+  const handleReset = async () => {
+    if (!email) { setError('Bitte E-Mail-Adresse eingeben.'); return }
+    setLoading(true)
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + '/reset-password'
+    })
+    setLoading(false)
+    if (error) setError(error.message)
+    else setError('✅ Reset-Link gesendet! Bitte prüfe dein Postfach.')
   }
 
   const handleEmail = async () => {
@@ -76,6 +88,13 @@ export default function AuthModal({ onClose, contextMsg }) {
         )}
         <Input label="E-Mail" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="deine@email.de" />
         <Input label="Passwort" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Mindestens 6 Zeichen" />
+        {mode === 'login' && (
+          <div style={{ textAlign: 'right', marginTop: -8, marginBottom: 8 }}>
+            <span onClick={handleReset} style={{ fontSize: '0.8rem', color: C.purple, cursor: 'pointer', fontWeight: 500 }}>
+              Passwort vergessen?
+            </span>
+          </div>
+        )}
 
         {error && (
           <div style={{ background: error.startsWith('✅') ? C.successLight : C.errorLight, color: error.startsWith('✅') ? C.success : C.error, padding: '0.65rem 1rem', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>
