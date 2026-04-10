@@ -24,7 +24,8 @@ export default function Profile() {
   const [myBooks, setMyBooks] = useState([])
   const [swapRequests, setSwapRequests] = useState([])
   const [completedSwaps, setCompletedSwaps] = useState([])
-  const [myReviews, setMyReviews] = useState([])
+  const [myReviews, setMyReviews] = useState([])     // reviews I GAVE
+  const [receivedReviews, setReceivedReviews] = useState([]) // reviews I RECEIVED
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('books')
   const [deleting, setDeleting] = useState(null)
