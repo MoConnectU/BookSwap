@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Check, LogOut, Trash2, MessageCircle, Edit2, Camera, X, Star } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { C, Card, Avatar, Badge, PrimaryBtn, Spinner } from '../components/UI'
+import ReviewModal from '../components/ReviewModal'
 
 const COLORS = [
   'linear-gradient(135deg,#7C3AED,#A78BFA)',
@@ -29,14 +30,10 @@ export default function Profile() {
   const [deleting, setDeleting] = useState(null)
   const [responding, setResponding] = useState(null)
   const [editOpen, setEditOpen] = useState(false)
+  const [reviewTarget, setReviewTarget] = useState(null) // { otherUser, swapId }
 
-  useEffect(() => {
-    if (!user) { navigate('/'); return }
-    fetchMyData()
-    refreshProfile() // Always get latest rating/trades from DB
-  }, [user])
-
-  const fetchMyData = async () => {
+  const fetchMyData = useCallback(async () => {
+    if (!user) return
     setLoading(true)
     const [
       { data: books },
@@ -44,16 +41,19 @@ export default function Profile() {
       { data: completed },
       { data: reviews }
     ] = await Promise.all([
-      supabase.from('books').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+      supabase.from('books')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false }),
       supabase.from('swap_requests')
         .select('*, books!requested_book_id(title, author), profiles!requester_id(name, avatar_url)')
-        .eq('owner_id', user.id).eq('status', 'pending'),
+        .eq('owner_id', user.id)
+        .eq('status', 'pending'),
       supabase.from('swap_requests')
-        .select('id, created_at, requester_id, owner_id, requested:books!requested_book_id(title), offered:books!offered_book_id(title), requester:profiles!requester_id(name), owner:profiles!owner_id(name)')
+        .select('id, created_at, requester_id, owner_id, requested:books!requested_book_id(title), offered:books!offered_book_id(title), requester:profiles!requester_id(id, name, avatar_url), owner:profiles!owner_id(id, name, avatar_url)')
         .or(`requester_id.eq.${user.id},owner_id.eq.${user.id}`)
         .eq('status', 'completed')
         .order('created_at', { ascending: false }),
-      // Reviews that others gave ME
       supabase.from('reviews')
         .select('*, reviewer:profiles!reviewer_id(name, avatar_url)')
         .eq('reviewed_id', user.id)
@@ -64,7 +64,13 @@ export default function Profile() {
     setCompletedSwaps(completed || [])
     setMyReviews(reviews || [])
     setLoading(false)
-  }
+  }, [user])
+
+  useEffect(() => {
+    if (!user) { navigate('/'); return }
+    fetchMyData()
+    refreshProfile()
+  }, [user, fetchMyData])
 
   const handleDeleteBook = async (bookId, coverUrl) => {
     if (!window.confirm('Buch wirklich löschen?')) return
@@ -86,8 +92,23 @@ export default function Profile() {
     fetchMyData()
   }
 
+  const handleReviewSaved = async () => {
+    setReviewTarget(null)
+    await refreshProfile()
+    fetchMyData()
+  }
+
   const handleSignOut = async () => { await signOut(); navigate('/') }
   const name = profile?.name || user?.email?.split('@')[0] || 'Leser'
+
+  // Check if user already reviewed a swap
+  const hasReviewed = (swapId) => myReviews.some(r => r.swap_id === swapId)
+
+  // Get the other person in a swap
+  const getOtherPerson = (swap) => {
+    if (swap.requester_id === user.id) return swap.owner
+    return swap.requester
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg }}>
@@ -185,7 +206,9 @@ export default function Profile() {
                       <Check size={11} /> {b.is_available ? 'Online' : 'Getauscht'} · {b.condition}
                     </div>
                     {b.is_available && (
-                      <button onClick={() => handleDeleteBook(b.id, b.cover_url)} disabled={deleting === b.id}
+                      <button
+                        onClick={() => handleDeleteBook(b.id, b.cover_url)}
+                        disabled={deleting === b.id}
                         style={{ width: '100%', padding: '0.45rem', borderRadius: 8, border: '1px solid #FEE2E2', background: '#FFF5F5', color: '#EF4444', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
                         <Trash2 size={12} />{deleting === b.id ? 'Löschen...' : 'Löschen'}
                       </button>
@@ -216,11 +239,15 @@ export default function Profile() {
                     <Badge>Neu</Badge>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => handleSwapResponse(s.id, 'accepted')} disabled={responding === s.id}
+                    <button
+                      onClick={() => handleSwapResponse(s.id, 'accepted')}
+                      disabled={responding === s.id}
                       style={{ flex: 1, padding: '0.65rem', borderRadius: 10, border: 'none', background: responding === s.id ? C.border : `linear-gradient(135deg,${C.purple},${C.blue})`, color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                       <Check size={14} />{responding === s.id ? 'Wird angenommen...' : 'Annehmen → Chat öffnet sich'}
                     </button>
-                    <button onClick={() => handleSwapResponse(s.id, 'declined')} disabled={responding === s.id}
+                    <button
+                      onClick={() => handleSwapResponse(s.id, 'declined')}
+                      disabled={responding === s.id}
                       style={{ padding: '0.65rem 1rem', borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
                       Ablehnen
                     </button>
@@ -239,16 +266,16 @@ export default function Profile() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {completedSwaps.map(s => {
-                const isRequester = s.requester_id === user.id
-                const otherName = isRequester ? s.owner?.name : s.requester?.name
-                // Find review for this swap
+                const otherPerson = getOtherPerson(s)
                 const review = myReviews.find(r => r.swap_id === s.id)
+                const alreadyReviewed = hasReviewed(s.id)
                 return (
                   <Card key={s.id} style={{ padding: '1.2rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: review ? 12 : 0 }}>
+                    {/* Swap info */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                       <div>
                         <p style={{ fontWeight: 700, color: C.text, fontSize: '0.9rem', marginBottom: 4 }}>
-                          Tausch mit {otherName || 'Nutzer'}
+                          Tausch mit {otherPerson?.name || 'Nutzer'}
                         </p>
                         <p style={{ fontSize: '0.8rem', color: C.muted }}>
                           📚 {s.requested?.title || '?'} ⇄ {s.offered?.title || '?'}
@@ -257,11 +284,14 @@ export default function Profile() {
                           {new Date(s.created_at).toLocaleDateString('de-DE')}
                         </p>
                       </div>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.3rem 0.7rem', borderRadius: 100 }}>✓ Abgeschlossen</span>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.3rem 0.7rem', borderRadius: 100, whiteSpace: 'nowrap' }}>
+                        ✓ Abgeschlossen
+                      </span>
                     </div>
-                    {/* Show review received for this swap */}
+
+                    {/* Review received */}
                     {review && (
-                      <div style={{ background: C.bg, borderRadius: 10, padding: '0.75rem', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                      <div style={{ background: C.bg, borderRadius: 10, padding: '0.75rem', display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10 }}>
                         <Avatar letter={review.reviewer?.name || '?'} size={32} src={review.reviewer?.avatar_url} />
                         <div style={{ flex: 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -276,6 +306,20 @@ export default function Profile() {
                         </div>
                       </div>
                     )}
+
+                    {/* Review button — only if not yet reviewed */}
+                    {!alreadyReviewed && otherPerson?.id && (
+                      <button
+                        onClick={() => setReviewTarget({ otherUser: otherPerson, swapId: s.id })}
+                        style={{ width: '100%', padding: '0.6rem', borderRadius: 10, border: `1.5px solid ${C.warning}`, background: 'rgba(245,158,11,0.06)', color: C.warning, fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        <Star size={14} fill={C.warning} color={C.warning} /> {otherPerson?.name} bewerten
+                      </button>
+                    )}
+                    {alreadyReviewed && (
+                      <p style={{ fontSize: '0.75rem', color: C.success, textAlign: 'center', marginTop: 4 }}>
+                        ✓ Du hast bereits bewertet
+                      </p>
+                    )}
                   </Card>
                 )
               })}
@@ -286,10 +330,24 @@ export default function Profile() {
 
       {/* Edit Profile Modal */}
       {editOpen && (
-        <EditProfileModal profile={profile} user={user}
+        <EditProfileModal
+          profile={profile}
+          user={user}
           onClose={() => setEditOpen(false)}
-          onSaved={() => { setEditOpen(false); refreshProfile() }} />
+          onSaved={() => { setEditOpen(false); refreshProfile() }}
+        />
       )}
+
+      {/* Review Modal — only opened from history tab */}
+      {reviewTarget && (
+        <ReviewModal
+          otherUser={reviewTarget.otherUser}
+          swapId={reviewTarget.swapId}
+          onClose={() => setReviewTarget(null)}
+          onSaved={handleReviewSaved}
+        />
+      )}
+
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
@@ -319,7 +377,9 @@ function EditProfileModal({ profile, user, onClose, onSaved }) {
     if (avatarFile) {
       const ext = avatarFile.name.split('.').pop()
       const filename = `avatars/${user.id}.${ext}`
-      const { error: uploadError } = await supabase.storage.from('book-covers').upload(filename, avatarFile, { upsert: true })
+      const { error: uploadError } = await supabase.storage
+        .from('book-covers')
+        .upload(filename, avatarFile, { upsert: true })
       if (!uploadError) {
         const { data } = supabase.storage.from('book-covers').getPublicUrl(filename)
         avatar_url = data.publicUrl
@@ -343,13 +403,11 @@ function EditProfileModal({ profile, user, onClose, onSaved }) {
         </button>
         <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: C.text, marginBottom: 20 }}>Profil bearbeiten</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
-          <div style={{ position: 'relative' }}>
-            {avatarPreview ? (
-              <img src={avatarPreview} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} />
-            ) : (
-              <Avatar letter={name || '?'} size={72} />
-            )}
-          </div>
+          {avatarPreview ? (
+            <img src={avatarPreview} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} />
+          ) : (
+            <Avatar letter={name || '?'} size={72} />
+          )}
           <label style={{ cursor: 'pointer' }}>
             <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
             <div style={{ padding: '0.5rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 10, fontSize: '0.85rem', fontWeight: 500, color: C.muted, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -361,7 +419,7 @@ function EditProfileModal({ profile, user, onClose, onSaved }) {
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Dein Name" style={inputStyle} />
         <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#374151', marginBottom: 5 }}>Stadt</label>
         <input value={city} onChange={e => setCity(e.target.value)} placeholder="z.B. Berlin" style={{ ...inputStyle, marginBottom: 16 }} />
-        {error && <div style={{ background: '#FEE2E2', color: '#EF4444', padding: '0.65rem 1rem', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>{error}</div>}
+        {error && <div style={{ background: '#FEE2E2', color: '#EF4444', padding: '0.65rem', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>{error}</div>}
         <PrimaryBtn onClick={handleSave} disabled={saving} style={{ width: '100%', borderRadius: 12, padding: '0.85rem' }} icon={Check}>
           {saving ? 'Wird gespeichert...' : 'Speichern'}
         </PrimaryBtn>
