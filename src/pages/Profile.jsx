@@ -310,9 +310,9 @@ export default function Profile() {
                     )}
 
                     {/* Review button — only if not yet reviewed */}
-                    {!alreadyReviewed && otherPerson?.id && (
+                    {!alreadyReviewed && otherPerson && (
                       <button
-                        onClick={() => setReviewTarget({ otherUser: otherPerson, swapId: s.id })}
+                        onClick={() => { alert('clicked: ' + JSON.stringify({id: otherPerson?.id, name: otherPerson?.name, swapId: s.id})); setReviewTarget({ otherUser: otherPerson, swapId: s.id }) }}
                         style={{ width: '100%', padding: '0.6rem', borderRadius: 10, border: `1.5px solid ${C.warning}`, background: 'rgba(245,158,11,0.06)', color: C.warning, fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                         <Star size={14} fill={C.warning} color={C.warning} /> {otherPerson?.name} bewerten
                       </button>
