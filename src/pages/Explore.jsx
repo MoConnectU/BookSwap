@@ -28,6 +28,13 @@ export default function Explore() {
 
   useEffect(() => { fetchBooks() }, [filter])
 
+  // Refetch when page becomes visible again (e.g. after completing a swap)
+  useEffect(() => {
+    const onFocus = () => fetchBooks()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [filter])
+
   const fetchBooks = async () => {
     setLoading(true)
     let query = supabase
