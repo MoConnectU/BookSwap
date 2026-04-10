@@ -99,7 +99,8 @@ export default function Chat() {
     setActiveConv(prev => ({ ...prev, status: 'completed' }))
     fetchConversations()
     setCompleting(false)
-    setShowReview(true)
+    // Small delay then show review
+    setTimeout(() => setShowReview(true), 300)
   }
 
   // ── CONVERSATION LIST ────────────────────────────────────────
@@ -190,7 +191,7 @@ export default function Chat() {
         <div style={{ background: C.surface, borderTop: `1px solid ${C.border}`, padding: '0.75rem 1rem', flexShrink: 0 }}>
           <button onClick={handleCompleteSwap} disabled={completing}
             style={{ width: '100%', padding: '0.65rem', borderRadius: 10, border: 'none', background: completing ? C.border : C.successLight, color: completing ? C.muted : C.success, fontWeight: 700, fontSize: '0.85rem', cursor: completing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
-            <Package size={15} />{completing ? 'Wird abgeschlossen...' : '✓ Tausch abschließen — Bücher angekommen?'}
+            <Package size={15} />{completing ? 'Wird abgeschlossen...' : '✓ Tausch abschließen'}
           </button>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <input value={newMsg} onChange={e => setNewMsg(e.target.value)}
