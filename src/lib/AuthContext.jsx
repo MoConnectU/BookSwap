@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext({})
@@ -8,15 +8,23 @@ export const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  const fetchProfile = useCallback(async (userId) => {
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single()
+    setProfile(data)
+    return data
+  }, [])
+
   useEffect(() => {
-    // Check current session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
       if (session?.user) fetchProfile(session.user.id)
       setLoading(false)
     })
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) fetchProfile(session.user.id)
@@ -24,23 +32,12 @@ export const AuthProvider = ({ children }) => {
     })
 
     return () => subscription.unsubscribe()
-  }, [])
-
-  const fetchProfile = async (userId) => {
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
-    setProfile(data)
-  }
+  }, [fetchProfile])
 
   const signInWithGoogle = async () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: window.location.origin
-      }
+      options: { redirectTo: window.location.origin }
     })
     if (error) console.error('Google Login Fehler:', error)
   }
@@ -52,8 +49,7 @@ export const AuthProvider = ({ children }) => {
 
   const signUpWithEmail = async (email, password, name) => {
     const { error } = await supabase.auth.signUp({
-      email,
-      password,
+      email, password,
       options: { data: { full_name: name } }
     })
     return { error }
@@ -61,13 +57,18 @@ export const AuthProvider = ({ children }) => {
 
   const signOut = async () => {
     await supabase.auth.signOut()
+    setProfile(null)
   }
+
+  const refreshProfile = useCallback(() => {
+    if (user) return fetchProfile(user.id)
+  }, [user, fetchProfile])
 
   return (
     <AuthContext.Provider value={{
       user, profile, loading,
       signInWithGoogle, signInWithEmail, signUpWithEmail, signOut,
-      refreshProfile: () => user && fetchProfile(user.id)
+      refreshProfile
     }}>
       {children}
     </AuthContext.Provider>
