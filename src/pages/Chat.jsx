@@ -1,84 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, Send, Check, Package, Star, X } from 'lucide-react'
+import { ChevronLeft, Send, Check, Package } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
-import { C, Avatar, Spinner, PrimaryBtn, GhostBtn } from '../components/UI'
+import { C, Avatar, Spinner } from '../components/UI'
+import ReviewModal from '../components/ReviewModal'
 
-// ── REVIEW MODAL ──────────────────────────────────────────────
-function ReviewModal({ otherUser, swapId, onClose, onSaved }) {
-  const { user } = useAuth()
-  const [rating, setRating] = useState(5)
-  const [hovered, setHovered] = useState(0)
-  const [comment, setComment] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  const labels = ['', 'Schlecht', 'Naja', 'Ok', 'Gut', 'Ausgezeichnet!']
-
-  const handleSave = async () => {
-    setSaving(true)
-    await supabase.from('reviews').insert({
-      reviewer_id: user.id,
-      reviewed_id: otherUser.id,
-      swap_id: swapId,
-      rating,
-      comment: comment.trim() || null
-    })
-    // Recalculate and update average rating
-    const { data: allReviews } = await supabase
-      .from('reviews').select('rating').eq('reviewed_id', otherUser.id)
-    if (allReviews?.length) {
-      const avg = allReviews.reduce((sum, r) => sum + r.rating, 0) / allReviews.length
-      const rounded = Math.round(avg * 10) / 10
-      await supabase.from('profiles').update({ rating: rounded }).eq('id', otherUser.id)
-      console.log(`Rating updated for ${otherUser.id}: ${rounded} (${allReviews.length} reviews)`)
-    } else {
-      await supabase.from('profiles').update({ rating: 0 }).eq('id', otherUser.id)
-    }
-    setSaving(false)
-    onSaved()
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(17,24,39,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-      <div style={{ background: C.surface, borderRadius: 24, padding: '2rem', maxWidth: 400, width: '100%', boxShadow: '0 32px 80px rgba(0,0,0,0.25)', position: 'relative' }}>
-        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, width: 32, height: 32, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <X size={16} color={C.muted} />
-        </button>
-
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🎉</div>
-          <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: C.text, marginBottom: 4 }}>Tausch abgeschlossen!</h2>
-          <p style={{ fontSize: '0.85rem', color: C.muted }}>Wie war der Tausch mit <strong>{otherUser?.name}</strong>?</p>
-        </div>
-
-        {/* Stars */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
-          {[1,2,3,4,5].map(s => (
-            <Star key={s} size={38} color={C.warning} fill={s <= (hovered || rating) ? C.warning : 'transparent'} style={{ cursor: 'pointer', transition: 'all 0.15s' }}
-              onClick={() => setRating(s)} onMouseEnter={() => setHovered(s)} onMouseLeave={() => setHovered(0)} />
-          ))}
-        </div>
-        <p style={{ textAlign: 'center', fontSize: '0.85rem', color: C.muted, marginBottom: 16, fontWeight: 500 }}>
-          {labels[hovered || rating]}
-        </p>
-
-        <textarea value={comment} onChange={e => setComment(e.target.value)}
-          placeholder="Kommentar (optional) — Kommunikation, Buchzustand, ..."
-          style={{ width: '100%', padding: '0.75rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 10, outline: 'none', fontSize: '0.88rem', color: C.text, background: C.bg, height: 80, resize: 'none', marginBottom: 16 }} />
-
-        <PrimaryBtn onClick={handleSave} disabled={saving} style={{ width: '100%', borderRadius: 12, padding: '0.85rem' }}>
-          {saving ? 'Wird gespeichert...' : '⭐ Bewertung abgeben'}
-        </PrimaryBtn>
-        <button onClick={onClose} style={{ width: '100%', marginTop: 8, padding: '0.6rem', background: 'transparent', border: 'none', cursor: 'pointer', color: C.muted, fontSize: '0.82rem' }}>
-          Überspringen
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── MAIN CHAT ─────────────────────────────────────────────────
 export default function Chat() {
   const navigate = useNavigate()
   const { user } = useAuth()
@@ -101,18 +28,21 @@ export default function Chat() {
   }, [user])
 
   useEffect(() => {
-    if (activeConv) {
-      fetchMessages(activeConv.id)
-      fetchConvDetails(activeConv)
-      const sub = supabase.channel(`chat_${activeConv.id}`)
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${activeConv.id}` },
-          payload => setMessages(prev => [...prev, payload.new]))
-        .subscribe()
-      return () => supabase.removeChannel(sub)
-    }
+    if (!activeConv) return
+    fetchMessages(activeConv.id)
+    fetchConvDetails(activeConv)
+    const sub = supabase.channel(`chat_${activeConv.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public',
+        table: 'messages', filter: `conversation_id=eq.${activeConv.id}`
+      }, payload => setMessages(prev => [...prev, payload.new]))
+      .subscribe()
+    return () => supabase.removeChannel(sub)
   }, [activeConv])
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
 
   const fetchConversations = async () => {
     setLoading(true)
@@ -152,10 +82,11 @@ export default function Chat() {
   }
 
   const handleCompleteSwap = async () => {
-    if (!window.confirm('Tausch als abgeschlossen markieren? Beide Bücher werden als getauscht markiert.')) return
+    if (!window.confirm('Tausch als abgeschlossen markieren?')) return
     setCompleting(true)
     if (activeConv.swap_request_id) {
-      const { data: swap } = await supabase.from('swap_requests').select('*').eq('id', activeConv.swap_request_id).single()
+      const { data: swap } = await supabase.from('swap_requests')
+        .select('*').eq('id', activeConv.swap_request_id).single()
       if (swap) {
         await supabase.from('swap_requests').update({ status: 'completed' }).eq('id', swap.id)
         if (swap.requested_book_id) await supabase.from('books').update({ is_available: false }).eq('id', swap.requested_book_id)
@@ -168,7 +99,6 @@ export default function Chat() {
     setActiveConv(prev => ({ ...prev, status: 'completed' }))
     fetchConversations()
     setCompleting(false)
-    // Show review modal instead of system message
     setShowReview(true)
   }
 
@@ -192,7 +122,8 @@ export default function Chat() {
               <p style={{ fontSize: '0.85rem' }}>Biete einen Tausch an um eine Unterhaltung zu starten</p>
             </div>
           ) : conversations.map(conv => (
-            <ConvItem key={conv.id} conv={conv} userId={user.id} onClick={() => { setActiveConv(conv); setOtherUser(null); setBookTitle('') }} />
+            <ConvItem key={conv.id} conv={conv} userId={user.id}
+              onClick={() => { setActiveConv(conv); setOtherUser(null); setBookTitle(''); setSwapId(null) }} />
           ))}
         </div>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
@@ -220,7 +151,7 @@ export default function Chat() {
         )}
       </div>
 
-      {/* Info banner */}
+      {/* Info banner - only when active */}
       {!isCompleted && (
         <div style={{ background: C.purpleLight, padding: '0.6rem 1.5rem', textAlign: 'center', fontSize: '0.78rem', color: C.purple, fontWeight: 500 }}>
           Tausch vereinbart! Klärt hier Versanddetails. Wenn beide Bücher angekommen sind → "Tausch abschließen"
@@ -254,10 +185,11 @@ export default function Chat() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Complete button + input */}
+      {/* Bottom area */}
       {!isCompleted ? (
         <div style={{ background: C.surface, borderTop: `1px solid ${C.border}`, padding: '0.75rem 1rem', flexShrink: 0 }}>
-          <button onClick={handleCompleteSwap} disabled={completing} style={{ width: '100%', padding: '0.65rem', borderRadius: 10, border: 'none', background: completing ? C.border : C.successLight, color: completing ? C.muted : C.success, fontWeight: 700, fontSize: '0.85rem', cursor: completing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
+          <button onClick={handleCompleteSwap} disabled={completing}
+            style={{ width: '100%', padding: '0.65rem', borderRadius: 10, border: 'none', background: completing ? C.border : C.successLight, color: completing ? C.muted : C.success, fontWeight: 700, fontSize: '0.85rem', cursor: completing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
             <Package size={15} />{completing ? 'Wird abgeschlossen...' : '✓ Tausch abschließen — Bücher angekommen?'}
           </button>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -273,8 +205,8 @@ export default function Chat() {
         </div>
       ) : null}
 
-      {/* Review Modal — appears after completing swap */}
-      {showReview && otherUser && (
+      {/* Review Modal */}
+      {showReview && otherUser && swapId && (
         <ReviewModal
           otherUser={otherUser}
           swapId={swapId}
@@ -287,7 +219,7 @@ export default function Chat() {
   )
 }
 
-// ── Conversation list item ────────────────────────────────────
+// ── Conversation List Item ────────────────────────────────────
 function ConvItem({ conv, userId, onClick }) {
   const [otherUser, setOtherUser] = useState(null)
   const [bookTitle, setBookTitle] = useState('')
@@ -298,7 +230,8 @@ function ConvItem({ conv, userId, onClick }) {
       const { data: p } = await supabase.from('profiles').select('name, avatar_url').eq('id', otherId).single()
       setOtherUser(p)
       if (conv.swap_request_id) {
-        const { data: s } = await supabase.from('swap_requests').select('books!requested_book_id(title)').eq('id', conv.swap_request_id).single()
+        const { data: s } = await supabase.from('swap_requests')
+          .select('books!requested_book_id(title)').eq('id', conv.swap_request_id).single()
         setBookTitle(s?.books?.title || 'Buch')
       }
     }
