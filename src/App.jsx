@@ -3,7 +3,6 @@ import { Routes, Route, useNavigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/AuthContext'
 import Nav from './components/Nav'
 import AuthModal from './components/AuthModal'
-import ReviewModal from './components/ReviewModal'
 import Landing from './pages/Landing'
 import Explore from './pages/Explore'
 import BookDetail from './pages/BookDetail'
@@ -58,15 +57,7 @@ function InnerApp() {
         <AuthModal contextMsg={authContext} onClose={() => setAuthOpen(false)} />
       )}
 
-      {/* ReviewModal - managed at top level, always resets on logout */}
-      {pendingReview && user && (
-        <ReviewModal
-          otherUser={pendingReview.otherUser}
-          swapId={pendingReview.swapId}
-          onClose={() => { setDismissedSwaps(prev => new Set([...prev, pendingReview.swapId])); setPendingReview(null) }}
-          onSaved={() => { setDismissedSwaps(prev => new Set([...prev, pendingReview.swapId])); setPendingReview(null) }}
-        />
-      )}
+      {/* ReviewModal moved to Profile history tab */}
     </div>
   )
 }
