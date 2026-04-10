@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Routes, Route, useNavigate } from 'react-router-dom'
-import { AuthProvider, useAuth } from './lib/AuthContext'
+import { useState } from 'react'
+import { Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './lib/AuthContext'
 import Nav from './components/Nav'
 import AuthModal from './components/AuthModal'
 import Landing from './pages/Landing'
@@ -11,61 +11,32 @@ import Profile from './pages/Profile'
 import Chat from './pages/Chat'
 import PublicProfile from './pages/PublicProfile'
 
-// Inner app has access to auth context
-function InnerApp() {
-  const { user } = useAuth()
+export default function App() {
   const [authOpen, setAuthOpen] = useState(false)
   const [authContext, setAuthContext] = useState('')
-  const [pendingReview, setPendingReview] = useState(null) // { otherUser, swapId }
-  const [dismissedSwaps, setDismissedSwaps] = useState(new Set())
-
-  // Reset everything when user logs out
-  useEffect(() => {
-    if (!user) {
-      setAuthOpen(false)
-      setPendingReview(null)
-      setDismissedSwaps(new Set())
-    }
-  }, [user])
 
   const openAuth = (msg = '') => {
     setAuthContext(msg)
     setAuthOpen(true)
   }
 
-  const triggerReview = (otherUser, swapId) => {
-    if (otherUser?.id && otherUser?.name && swapId && !dismissedSwaps.has(swapId)) {
-      setPendingReview({ otherUser, swapId })
-    }
-  }
-
-  return (
-    <div style={{ paddingBottom: 72 }}>
-      <Nav onOpenAuth={openAuth} />
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/explore" element={<Explore />} />
-        <Route path="/book/:id" element={<BookDetail onOpenAuth={openAuth} />} />
-        <Route path="/upload" element={<Upload />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/chat" element={<Chat onTriggerReview={triggerReview} />} />
-        <Route path="/user/:id" element={<PublicProfile />} />
-      </Routes>
-
-      {/* AuthModal */}
-      {authOpen && (
-        <AuthModal contextMsg={authContext} onClose={() => setAuthOpen(false)} />
-      )}
-
-      {/* ReviewModal moved to Profile history tab */}
-    </div>
-  )
-}
-
-export default function App() {
   return (
     <AuthProvider>
-      <InnerApp />
+      <div style={{ paddingBottom: 72 }}>
+        <Nav onOpenAuth={openAuth} />
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route path="/explore" element={<Explore />} />
+          <Route path="/book/:id" element={<BookDetail onOpenAuth={openAuth} />} />
+          <Route path="/upload" element={<Upload />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/chat" element={<Chat />} />
+          <Route path="/user/:id" element={<PublicProfile />} />
+        </Routes>
+        {authOpen && (
+          <AuthModal contextMsg={authContext} onClose={() => setAuthOpen(false)} />
+        )}
+      </div>
     </AuthProvider>
   )
 }
