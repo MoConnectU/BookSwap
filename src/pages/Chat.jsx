@@ -9,6 +9,7 @@ export default function Chat() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [conversations, setConversations] = useState([])
+  const [convDetails, setConvDetails] = useState({}) // { [convId]: { otherUser, bookTitle } }
   const [activeConv, setActiveConv] = useState(null)
   const [messages, setMessages] = useState([])
   const [otherUser, setOtherUser] = useState(null)
@@ -18,6 +19,7 @@ export default function Chat() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [completing, setCompleting] = useState(false)
+  const [error, setError] = useState(null)
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -31,8 +33,8 @@ export default function Chat() {
     fetchConvDetails(activeConv)
     const sub = supabase.channel(`chat_${activeConv.id}`)
       .on('postgres_changes', {
-        event: 'INSERT', schema: 'public',
-        table: 'messages', filter: `conversation_id=eq.${activeConv.id}`
+        event: 'INSERT', schema: 'public', table: 'messages',
+        filter: `conversation_id=eq.${activeConv.id}`
       }, payload => setMessages(prev => [...prev, payload.new]))
       .subscribe()
     return () => supabase.removeChannel(sub)
@@ -44,10 +46,48 @@ export default function Chat() {
 
   const fetchConversations = async () => {
     setLoading(true)
-    const { data } = await supabase.from('conversations').select('*')
+    setError(null)
+    const { data, error } = await supabase
+      .from('conversations')
+      .select('*')
       .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
       .order('updated_at', { ascending: false })
-    setConversations(data || [])
+
+    if (error) {
+      setError('Nachrichten konnten nicht geladen werden.')
+      setLoading(false)
+      return
+    }
+
+    const convs = data || []
+    setConversations(convs)
+
+    // Batch load all conv details in parallel instead of one-by-one
+    if (convs.length > 0) {
+      const otherUserIds = convs.map(c => c.user1_id === user.id ? c.user2_id : c.user1_id)
+      const swapIds = convs.filter(c => c.swap_request_id).map(c => c.swap_request_id)
+
+      const [{ data: profiles }, { data: swaps }] = await Promise.all([
+        supabase.from('profiles').select('id, name, avatar_url').in('id', [...new Set(otherUserIds)]),
+        swapIds.length > 0
+          ? supabase.from('swap_requests').select('id, books!requested_book_id(title)').in('id', swapIds)
+          : Promise.resolve({ data: [] })
+      ])
+
+      const profileMap = Object.fromEntries((profiles || []).map(p => [p.id, p]))
+      const swapMap = Object.fromEntries((swaps || []).map(s => [s.id, s]))
+
+      const details = {}
+      convs.forEach(c => {
+        const otherId = c.user1_id === user.id ? c.user2_id : c.user1_id
+        details[c.id] = {
+          otherUser: profileMap[otherId] || null,
+          bookTitle: c.swap_request_id ? (swapMap[c.swap_request_id]?.books?.title || 'Buch') : ''
+        }
+      })
+      setConvDetails(details)
+    }
+
     setLoading(false)
   }
 
@@ -74,40 +114,47 @@ export default function Chat() {
     setSending(true)
     const text = newMsg.trim()
     setNewMsg('')
-    await supabase.from('messages').insert({
-      conversation_id: activeConv.id,
-      sender_id: user.id,
-      text
-    })
-    await supabase.from('conversations')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', activeConv.id)
+    await supabase.from('messages').insert({ conversation_id: activeConv.id, sender_id: user.id, text })
+    await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', activeConv.id)
     setSending(false)
   }
 
   const handleCompleteSwap = async () => {
     if (!window.confirm('Tausch als abgeschlossen markieren?')) return
     setCompleting(true)
-    if (activeConv.swap_request_id) {
-      const { data: swap } = await supabase.from('swap_requests')
-        .select('*').eq('id', activeConv.swap_request_id).single()
-      if (swap) {
+    try {
+      if (activeConv.swap_request_id) {
+        const { data: swap, error: swapError } = await supabase.from('swap_requests')
+          .select('*').eq('id', activeConv.swap_request_id).single()
+
+        if (swapError || !swap) throw new Error('Tausch nicht gefunden')
+
         await supabase.from('swap_requests').update({ status: 'completed' }).eq('id', swap.id)
+
         if (swap.requested_book_id) await supabase.from('books').update({ is_available: false }).eq('id', swap.requested_book_id)
         if (swap.offered_book_id) await supabase.from('books').update({ is_available: false }).eq('id', swap.offered_book_id)
-        await supabase.rpc('increment_trades', { user_id: swap.requester_id })
-        await supabase.rpc('increment_trades', { user_id: swap.owner_id })
+
+        // increment_trades — Fehler hier ist nicht kritisch
+        try {
+          await supabase.rpc('increment_trades', { user_id: swap.requester_id })
+          await supabase.rpc('increment_trades', { user_id: swap.owner_id })
+        } catch (rpcErr) {
+          console.warn('Tausch-Zähler konnte nicht aktualisiert werden:', rpcErr)
+        }
       }
+
+      await supabase.from('conversations').update({ status: 'completed' }).eq('id', activeConv.id)
+      setActiveConv(prev => ({ ...prev, status: 'completed' }))
+      fetchConversations()
+      navigate('/profile')
+    } catch (err) {
+      alert('Fehler beim Abschließen des Tauschs. Bitte versuche es erneut.')
+    } finally {
+      setCompleting(false)
     }
-    await supabase.from('conversations').update({ status: 'completed' }).eq('id', activeConv.id)
-    setActiveConv(prev => ({ ...prev, status: 'completed' }))
-    fetchConversations()
-    setCompleting(false)
-    // Navigate to profile to leave review from history tab
-    navigate('/profile')
   }
 
-  // ── CONVERSATION LIST ────────────────────────────────────────
+  // ── CONVERSATION LIST ──────────────────────────────────────────
   if (!activeConv) {
     return (
       <div style={{ minHeight: '100vh', background: C.bg }}>
@@ -120,28 +167,46 @@ export default function Chat() {
         <div style={{ maxWidth: 700, margin: '0 auto', padding: '1rem 1.5rem' }}>
           {loading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}><Spinner size={36} /></div>
+          ) : error ? (
+            <div style={{ textAlign: 'center', padding: '4rem', color: C.muted }}>
+              <div style={{ fontSize: '3rem', marginBottom: 12 }}>😕</div>
+              <p style={{ fontWeight: 600, marginBottom: 8, color: C.text }}>{error}</p>
+              <button onClick={fetchConversations} style={{ padding: '0.6rem 1.5rem', borderRadius: 10, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.purple, cursor: 'pointer', fontWeight: 600 }}>
+                Erneut versuchen
+              </button>
+            </div>
           ) : conversations.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '4rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>💬</div>
               <p style={{ fontWeight: 600, marginBottom: 6 }}>Noch keine Nachrichten</p>
               <p style={{ fontSize: '0.85rem' }}>Biete einen Tausch an um eine Unterhaltung zu starten</p>
             </div>
-          ) : conversations.map(conv => (
-            <ConvItem key={conv.id} conv={conv} userId={user.id}
-              onClick={() => { setActiveConv(conv); setOtherUser(null); setBookTitle(''); setSwapId(null) }} />
-          ))}
+          ) : conversations.map(conv => {
+            const details = convDetails[conv.id] || {}
+            return (
+              <div key={conv.id} onClick={() => { setActiveConv(conv); setOtherUser(null); setBookTitle(''); setSwapId(null) }}
+                style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: '1rem 1.2rem', marginBottom: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Avatar letter={details.otherUser?.name || '?'} size={46} src={details.otherUser?.avatar_url} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.9rem', color: C.text, marginBottom: 2 }}>{details.otherUser?.name || '...'}</div>
+                  <div style={{ fontSize: '0.78rem', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📚 {details.bookTitle || '...'}</div>
+                </div>
+                <span style={{ fontSize: '0.7rem', fontWeight: 600, color: conv.status === 'completed' ? C.success : C.purple, background: conv.status === 'completed' ? C.successLight : C.purpleLight, padding: '0.2rem 0.6rem', borderRadius: 100, whiteSpace: 'nowrap' }}>
+                  {conv.status === 'completed' ? '✓ Fertig' : 'Aktiv'}
+                </span>
+              </div>
+            )
+          })}
         </div>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
     )
   }
 
-  // ── CHAT VIEW ────────────────────────────────────────────────
+  // ── CHAT VIEW ──────────────────────────────────────────────────
   const isCompleted = activeConv.status === 'completed'
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: C.bg }}>
-      {/* Header */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
         <button onClick={() => { setActiveConv(null); setOtherUser(null) }} style={{ width: 36, height: 36, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <ChevronLeft size={20} color={C.muted} />
@@ -158,14 +223,12 @@ export default function Chat() {
         )}
       </div>
 
-      {/* Info banner */}
       {!isCompleted && (
         <div style={{ background: C.purpleLight, padding: '0.6rem 1.5rem', textAlign: 'center', fontSize: '0.78rem', color: C.purple, fontWeight: 500 }}>
           Tausch vereinbart! Klärt hier Versanddetails. Wenn beide Bücher angekommen sind → "Tausch abschließen"
         </div>
       )}
 
-      {/* Messages */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', padding: '2rem', color: C.muted, fontSize: '0.85rem' }}>
@@ -192,20 +255,20 @@ export default function Chat() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Bottom */}
       {!isCompleted ? (
         <div style={{ background: C.surface, borderTop: `1px solid ${C.border}`, padding: '0.75rem 1rem', flexShrink: 0 }}>
-          <button onClick={handleCompleteSwap} disabled={completing}
-            style={{ width: '100%', padding: '0.65rem', borderRadius: 10, border: 'none', background: completing ? C.border : C.successLight, color: completing ? C.muted : C.success, fontWeight: 700, fontSize: '0.85rem', cursor: completing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
+          <button onClick={handleCompleteSwap} disabled={completing} style={{ width: '100%', padding: '0.65rem', borderRadius: 10, border: 'none', background: completing ? C.border : C.successLight, color: completing ? C.muted : C.success, fontWeight: 700, fontSize: '0.85rem', cursor: completing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
             <Package size={15} />{completing ? 'Wird abgeschlossen...' : '✓ Tausch abschließen'}
           </button>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <input value={newMsg} onChange={e => setNewMsg(e.target.value)}
+            <input
+              value={newMsg}
+              onChange={e => setNewMsg(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
               placeholder="Nachricht schreiben..."
-              style={{ flex: 1, padding: '0.7rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 100, outline: 'none', fontSize: '0.9rem', background: C.bg, color: C.text }} />
-            <button onClick={sendMessage} disabled={!newMsg.trim() || sending}
-              style={{ width: 44, height: 44, borderRadius: '50%', background: newMsg.trim() ? `linear-gradient(135deg,${C.purple},${C.blue})` : C.border, border: 'none', cursor: newMsg.trim() ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.18s' }}>
+              style={{ flex: 1, padding: '0.7rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 100, outline: 'none', fontSize: '0.9rem', background: C.bg, color: C.text }}
+            />
+            <button onClick={sendMessage} disabled={!newMsg.trim() || sending} style={{ width: 44, height: 44, borderRadius: '50%', background: newMsg.trim() ? `linear-gradient(135deg,${C.purple},${C.blue})` : C.border, border: 'none', cursor: newMsg.trim() ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.18s' }}>
               <Send size={18} color="#fff" />
             </button>
           </div>
@@ -216,39 +279,6 @@ export default function Chat() {
         </div>
       )}
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-    </div>
-  )
-}
-
-// ── Conversation List Item ────────────────────────────────────
-function ConvItem({ conv, userId, onClick }) {
-  const [otherUser, setOtherUser] = useState(null)
-  const [bookTitle, setBookTitle] = useState('')
-
-  useEffect(() => {
-    const load = async () => {
-      const otherId = conv.user1_id === userId ? conv.user2_id : conv.user1_id
-      const { data: p } = await supabase.from('profiles').select('name, avatar_url').eq('id', otherId).single()
-      setOtherUser(p)
-      if (conv.swap_request_id) {
-        const { data: s } = await supabase.from('swap_requests')
-          .select('books!requested_book_id(title)').eq('id', conv.swap_request_id).single()
-        setBookTitle(s?.books?.title || 'Buch')
-      }
-    }
-    load()
-  }, [conv.id])
-
-  return (
-    <div onClick={onClick} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: '1rem 1.2rem', marginBottom: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
-      <Avatar letter={otherUser?.name || '?'} size={46} src={otherUser?.avatar_url} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: C.text, marginBottom: 2 }}>{otherUser?.name || '...'}</div>
-        <div style={{ fontSize: '0.78rem', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📚 {bookTitle || '...'}</div>
-      </div>
-      <span style={{ fontSize: '0.7rem', fontWeight: 600, color: conv.status === 'completed' ? C.success : C.purple, background: conv.status === 'completed' ? C.successLight : C.purpleLight, padding: '0.2rem 0.6rem', borderRadius: 100, whiteSpace: 'nowrap' }}>
-        {conv.status === 'completed' ? '✓ Fertig' : 'Aktiv'}
-      </span>
     </div>
   )
 }
