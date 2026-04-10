@@ -12,7 +12,6 @@ const COLORS = [
   'linear-gradient(135deg,#0F766E,#34D399)',
   'linear-gradient(135deg,#D97706,#FCD34D)',
 ]
-
 const CONDITIONS = ['Wie neu', 'Sehr gut', 'Gut', 'Akzeptabel']
 const CATEGORIES = ['Roman', 'Sachbuch', 'Schulbuch', 'Studium / Fachbuch', 'Krimi / Thriller', 'Fantasy / SciFi', 'Kinder / Jugend', 'Ratgeber', 'Sonstiges']
 
@@ -34,7 +33,7 @@ export default function Profile() {
   const [deleting, setDeleting] = useState(null)
   const [responding, setResponding] = useState(null)
   const [editOpen, setEditOpen] = useState(false)
-  const [editingBook, setEditingBook] = useState(null) // book being edited
+  const [editingBook, setEditingBook] = useState(null)
   const [reviewTarget, setReviewTarget] = useState(null)
 
   const fetchMyData = useCallback(async () => {
@@ -87,15 +86,58 @@ export default function Profile() {
   const handleSwapResponse = async (swapId, status) => {
     setResponding(swapId)
     await supabase.from('swap_requests').update({ status }).eq('id', swapId)
+
     if (status === 'accepted') {
-      const { data: { session } } = await supabase.auth.getSession()
-      await fetch(`https://jtncwqysnnqvkixgvgyn.supabase.co/functions/v1/send-notification`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ type: 'request_accepted', swapRequestId: swapId })
-      })
-      setTimeout(() => navigate('/chat'), 800)
+      // E-Mail Benachrichtigung senden
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        await fetch(`https://jtncwqysnnqvkixgvgyn.supabase.co/functions/v1/send-notification`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
+          body: JSON.stringify({ type: 'request_accepted', swapRequestId: swapId })
+        })
+      } catch (e) {
+        console.warn('E-Mail fehlgeschlagen:', e)
+      }
+
+      // Konversation direkt holen und Chat öffnen — kein Zwischenschritt
+      const { data: swap } = await supabase
+        .from('swap_requests')
+        .select('requester_id, owner_id')
+        .eq('id', swapId)
+        .single()
+
+      if (swap) {
+        const { data: conv } = await supabase
+          .from('conversations')
+          .select('id')
+          .or(`and(user1_id.eq.${swap.requester_id},user2_id.eq.${swap.owner_id}),and(user1_id.eq.${swap.owner_id},user2_id.eq.${swap.requester_id})`)
+          .single()
+
+        if (conv) {
+          setResponding(null)
+          navigate(`/chat?conv=${conv.id}`)
+          return
+        }
+      }
+
+      // Fallback falls Konversation noch nicht da ist (kurz warten)
+      setTimeout(async () => {
+        const { data: swap2 } = await supabase
+          .from('swap_requests').select('requester_id, owner_id').eq('id', swapId).single()
+        if (swap2) {
+          const { data: conv2 } = await supabase
+            .from('conversations').select('id')
+            .or(`and(user1_id.eq.${swap2.requester_id},user2_id.eq.${swap2.owner_id}),and(user1_id.eq.${swap2.owner_id},user2_id.eq.${swap2.requester_id})`)
+            .single()
+          navigate(conv2 ? `/chat?conv=${conv2.id}` : '/chat')
+        } else {
+          navigate('/chat')
+        }
+      }, 800)
+      return
     }
+
     setResponding(null)
     fetchMyData()
   }
@@ -182,7 +224,6 @@ export default function Profile() {
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}><Spinner /></div>
         ) : tab === 'books' ? (
-          // ── MY BOOKS ──────────────────────────────────────────
           myBooks.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>📚</div>
@@ -204,19 +245,10 @@ export default function Profile() {
                     </div>
                     {b.is_available && (
                       <div style={{ display: 'flex', gap: 6 }}>
-                        {/* Edit button */}
-                        <button
-                          onClick={() => setEditingBook(b)}
-                          style={{ flex: 1, padding: '0.45rem', borderRadius: 8, border: `1px solid ${C.purpleMid}`, background: C.purpleLight, color: C.purple, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}
-                        >
+                        <button onClick={() => setEditingBook(b)} style={{ flex: 1, padding: '0.45rem', borderRadius: 8, border: `1px solid ${C.purpleMid}`, background: C.purpleLight, color: C.purple, cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                           <Pencil size={11} /> Bearbeiten
                         </button>
-                        {/* Delete button */}
-                        <button
-                          onClick={() => handleDeleteBook(b.id, b.cover_url)}
-                          disabled={deleting === b.id}
-                          style={{ padding: '0.45rem 0.55rem', borderRadius: 8, border: '1px solid #FEE2E2', background: '#FFF5F5', color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        >
+                        <button onClick={() => handleDeleteBook(b.id, b.cover_url)} disabled={deleting === b.id} style={{ padding: '0.45rem 0.55rem', borderRadius: 8, border: '1px solid #FEE2E2', background: '#FFF5F5', color: '#EF4444', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <Trash2 size={13} />
                         </button>
                       </div>
@@ -227,7 +259,6 @@ export default function Profile() {
             </div>
           )
         ) : tab === 'swaps' ? (
-          // ── SWAP REQUESTS ──────────────────────────────────────
           swapRequests.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>🤝</div>
@@ -259,7 +290,6 @@ export default function Profile() {
             </div>
           )
         ) : (
-          // ── HISTORY TAB ────────────────────────────────────────
           completedSwaps.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>📖</div>
@@ -309,26 +339,9 @@ export default function Profile() {
         )}
       </div>
 
-      {/* Edit Profile Modal */}
-      {editOpen && (
-        <EditProfileModal profile={profile} user={user} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); refreshProfile() }} />
-      )}
-
-      {/* Edit Book Modal */}
-      {editingBook && (
-        <EditBookModal
-          book={editingBook}
-          user={user}
-          onClose={() => setEditingBook(null)}
-          onSaved={() => { setEditingBook(null); fetchMyData() }}
-        />
-      )}
-
-      {/* Review Modal */}
-      {reviewTarget && (
-        <ReviewModal otherUser={reviewTarget.otherUser} swapId={reviewTarget.swapId} onClose={() => setReviewTarget(null)} onSaved={handleReviewSaved} />
-      )}
-
+      {editOpen && <EditProfileModal profile={profile} user={user} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); refreshProfile() }} />}
+      {editingBook && <EditBookModal book={editingBook} user={user} onClose={() => setEditingBook(null)} onSaved={() => { setEditingBook(null); fetchMyData() }} />}
+      {reviewTarget && <ReviewModal otherUser={reviewTarget.otherUser} swapId={reviewTarget.swapId} onClose={() => setReviewTarget(null)} onSaved={handleReviewSaved} />}
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
@@ -352,18 +365,9 @@ function EditBookModal({ book, user, onClose, onSaved }) {
     return () => { document.body.style.overflow = '' }
   }, [])
 
-  const handlePhoto = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    setCoverFile(file)
-    setCoverPreview(URL.createObjectURL(file))
-  }
-
   const handleSave = async () => {
     if (!title.trim() || !author.trim()) { setError('Titel und Autor sind Pflichtfelder.'); return }
-    setLoading(true)
-    setError('')
-
+    setLoading(true); setError('')
     let cover_url = book.cover_url
     if (coverFile) {
       const ext = coverFile.name.split('.').pop()
@@ -374,17 +378,12 @@ function EditBookModal({ book, user, onClose, onSaved }) {
         cover_url = data.publicUrl
       }
     }
-
-    const { error: updateError } = await supabase
-      .from('books')
+    const { error: updateError } = await supabase.from('books')
       .update({ title: title.trim(), author: author.trim(), isbn: isbn.trim() || null, category, condition, description: description.trim() || null, cover_url })
-      .eq('id', book.id)
-      .eq('user_id', user.id)
-
+      .eq('id', book.id).eq('user_id', user.id)
     setLoading(false)
     if (updateError) { setError('Fehler beim Speichern: ' + updateError.message); return }
-    onSaved()
-    onClose()
+    onSaved(); onClose()
   }
 
   const inputStyle = { width: '100%', padding: '0.75rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 10, outline: 'none', fontSize: '0.9rem', color: C.text, background: C.bg, boxSizing: 'border-box' }
@@ -392,27 +391,18 @@ function EditBookModal({ book, user, onClose, onSaved }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: C.bg, borderRadius: 20, width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,0.25)' }}>
-
-        {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem', borderBottom: `1px solid ${C.border}`, position: 'sticky', top: 0, background: C.bg, zIndex: 1 }}>
           <span style={{ fontWeight: 800, fontSize: '1.05rem', color: C.text }}>Buch bearbeiten</span>
-          <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: '50%', border: 'none', background: C.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <X size={18} color={C.muted} />
-          </button>
+          <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: '50%', border: 'none', background: C.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={18} color={C.muted} /></button>
         </div>
-
-        {/* Body */}
         <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-          {/* Cover photo */}
           <label style={{ display: 'block', cursor: 'pointer' }}>
-            <input type="file" accept="image/*" onChange={handlePhoto} style={{ display: 'none' }} />
+            <input type="file" accept="image/*" onChange={e => { const f = e.target.files[0]; if (!f) return; setCoverFile(f); setCoverPreview(URL.createObjectURL(f)) }} style={{ display: 'none' }} />
             {coverPreview ? (
               <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', height: 180 }}>
                 <img src={coverPreview} alt="Cover" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  <Upload size={22} color="#fff" />
-                  <span style={{ color: '#fff', fontSize: '0.8rem', fontWeight: 600 }}>Foto ändern</span>
+                  <Upload size={22} color="#fff" /><span style={{ color: '#fff', fontSize: '0.8rem', fontWeight: 600 }}>Foto ändern</span>
                 </div>
               </div>
             ) : (
@@ -423,53 +413,25 @@ function EditBookModal({ book, user, onClose, onSaved }) {
               </div>
             )}
           </label>
-
-          {/* Titel */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Titel *</label>
-            <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="Buchtitel" />
-          </div>
-
-          {/* Autor */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Autor *</label>
-            <input style={inputStyle} value={author} onChange={e => setAuthor(e.target.value)} placeholder="Autor" />
-          </div>
-
-          {/* ISBN */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>ISBN (optional)</label>
-            <input style={inputStyle} value={isbn} onChange={e => setIsbn(e.target.value)} placeholder="978-3-..." />
-          </div>
-
-          {/* Kategorie */}
+          <div><label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Titel *</label><input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="Buchtitel" /></div>
+          <div><label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Autor *</label><input style={inputStyle} value={author} onChange={e => setAuthor(e.target.value)} placeholder="Autor" /></div>
+          <div><label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>ISBN (optional)</label><input style={inputStyle} value={isbn} onChange={e => setIsbn(e.target.value)} placeholder="978-3-..." /></div>
           <div>
             <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Kategorie</label>
             <select style={{ ...inputStyle, cursor: 'pointer' }} value={category} onChange={e => setCategory(e.target.value)}>
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-
-          {/* Zustand */}
           <div>
             <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 8 }}>Zustand</label>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {CONDITIONS.map(c => (
-                <button key={c} onClick={() => setCondition(c)} style={{ padding: '0.5rem 1rem', borderRadius: 8, border: `1.5px solid ${condition === c ? C.purple : C.border}`, background: condition === c ? C.purpleLight : 'transparent', color: condition === c ? C.purple : C.muted, fontWeight: condition === c ? 700 : 400, fontSize: '0.82rem', cursor: 'pointer', transition: 'all 0.15s' }}>
-                  {c}
-                </button>
+                <button key={c} onClick={() => setCondition(c)} style={{ padding: '0.5rem 1rem', borderRadius: 8, border: `1.5px solid ${condition === c ? C.purple : C.border}`, background: condition === c ? C.purpleLight : 'transparent', color: condition === c ? C.purple : C.muted, fontWeight: condition === c ? 700 : 400, fontSize: '0.82rem', cursor: 'pointer' }}>{c}</button>
               ))}
             </div>
           </div>
-
-          {/* Beschreibung */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Beschreibung (optional)</label>
-            <textarea style={{ ...inputStyle, height: 90, resize: 'vertical' }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Kurze Beschreibung..." />
-          </div>
-
+          <div><label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 6 }}>Beschreibung (optional)</label><textarea style={{ ...inputStyle, height: 90, resize: 'vertical' }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Kurze Beschreibung..." /></div>
           {error && <div style={{ background: '#FEE2E2', color: '#EF4444', padding: '0.65rem 1rem', borderRadius: 8, fontSize: '0.82rem' }}>{error}</div>}
-
           <PrimaryBtn onClick={handleSave} disabled={loading} style={{ width: '100%', padding: '1rem', borderRadius: 14, fontSize: '0.95rem' }} icon={loading ? null : Check}>
             {loading ? 'Wird gespeichert...' : 'Änderungen speichern'}
           </PrimaryBtn>
@@ -488,17 +450,9 @@ function EditProfileModal({ profile, user, onClose, onSaved }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const handleAvatarChange = (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    setAvatarFile(file)
-    setAvatarPreview(URL.createObjectURL(file))
-  }
-
   const handleSave = async () => {
     if (!name.trim()) { setError('Name darf nicht leer sein.'); return }
-    setSaving(true)
-    setError('')
+    setSaving(true); setError('')
     let avatar_url = profile?.avatar_url || null
     if (avatarFile) {
       const ext = avatarFile.name.split('.').pop()
@@ -520,14 +474,12 @@ function EditProfileModal({ profile, user, onClose, onSaved }) {
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(17,24,39,0.6)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
       <div onClick={e => e.stopPropagation()} style={{ background: C.surface, borderRadius: 24, padding: '2rem', maxWidth: 420, width: '100%', boxShadow: '0 32px 80px rgba(0,0,0,0.25)', position: 'relative' }}>
-        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, width: 32, height: 32, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <X size={16} color={C.muted} />
-        </button>
+        <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, width: 32, height: 32, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} color={C.muted} /></button>
         <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: C.text, marginBottom: 20 }}>Profil bearbeiten</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
           {avatarPreview ? <img src={avatarPreview} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} /> : <Avatar letter={name || '?'} size={72} />}
           <label style={{ cursor: 'pointer' }}>
-            <input type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: 'none' }} />
+            <input type="file" accept="image/*" onChange={e => { const f = e.target.files[0]; if (!f) return; setAvatarFile(f); setAvatarPreview(URL.createObjectURL(f)) }} style={{ display: 'none' }} />
             <div style={{ padding: '0.5rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 10, fontSize: '0.85rem', fontWeight: 500, color: C.muted, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Camera size={14} /> Foto ändern
             </div>
