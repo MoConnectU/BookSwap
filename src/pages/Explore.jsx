@@ -23,12 +23,12 @@ export default function Explore() {
   const { user } = useAuth()
   const [books, setBooks] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('Alle')
 
   useEffect(() => { fetchBooks() }, [filter])
 
-  // Refetch when page becomes visible again (e.g. after completing a swap)
   useEffect(() => {
     const onFocus = () => fetchBooks()
     window.addEventListener('focus', onFocus)
@@ -37,6 +37,7 @@ export default function Explore() {
 
   const fetchBooks = async () => {
     setLoading(true)
+    setError(null)
     let query = supabase
       .from('books')
       .select('*, profiles(name, city, rating)')
@@ -46,11 +47,17 @@ export default function Explore() {
     if (filter !== 'Alle') query = query.eq('category', filter)
 
     const { data, error } = await query
-    if (!error) setBooks(data || [])
+
+    if (error) {
+      setError('Bücher konnten nicht geladen werden. Bitte versuche es erneut.')
+      setLoading(false)
+      return
+    }
+
+    setBooks(data || [])
     setLoading(false)
   }
 
-  // Bug 1 fix: filter out own books + search filter
   const filtered = books.filter(b => {
     const notOwn = !user || b.user_id !== user.id
     const matchSearch = b.title?.toLowerCase().includes(search.toLowerCase()) ||
@@ -87,6 +94,14 @@ export default function Explore() {
           <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}>
             <Spinner size={36} />
           </div>
+        ) : error ? (
+          <div style={{ textAlign: 'center', padding: '4rem', color: C.muted }}>
+            <div style={{ fontSize: '3rem', marginBottom: 12 }}>😕</div>
+            <p style={{ fontWeight: 600, marginBottom: 8, color: C.text }}>{error}</p>
+            <button onClick={fetchBooks} style={{ padding: '0.6rem 1.5rem', borderRadius: 10, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.purple, cursor: 'pointer', fontWeight: 600 }}>
+              Erneut versuchen
+            </button>
+          </div>
         ) : filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '4rem', color: C.muted }}>
             <div style={{ fontSize: '3rem', marginBottom: 12 }}>📭</div>
@@ -119,10 +134,7 @@ export default function Explore() {
                         )}
                       </div>
                     </div>
-                    <button
-                      onClick={e => { e.stopPropagation(); navigate(`/book/${b.id}`) }}
-                      style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: C.purple }}
-                    >
+                    <button onClick={e => { e.stopPropagation(); navigate(`/book/${b.id}`) }} style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: `1.5px solid ${C.border}`, background: 'transparent', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, color: C.purple }}>
                       ⇄ Tausch anbieten
                     </button>
                   </div>
