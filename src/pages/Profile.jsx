@@ -33,6 +33,7 @@ export default function Profile() {
   useEffect(() => {
     if (!user) { navigate('/'); return }
     fetchMyData()
+    refreshProfile() // Always get latest rating/trades from DB
   }, [user])
 
   const fetchMyData = async () => {
