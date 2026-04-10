@@ -3,27 +3,33 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ChevronLeft, MapPin, Star, ArrowLeftRight, MessageCircle, Check, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
-import { C, Card, Avatar, Badge, CondBadge, PrimaryBtn, GhostBtn, Spinner } from '../components/UI'
+import { C, Card, Avatar, Badge, CondBadge, PrimaryBtn, GhostBtn, Spinner, Toast } from '../components/UI'
 
 export default function BookDetail({ onOpenAuth }) {
   const { id } = useParams()
   const navigate = useNavigate()
   const { user } = useAuth()
-
   const [book, setBook] = useState(null)
   const [myBooks, setMyBooks] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [swapOpen, setSwapOpen] = useState(false)
   const [selectedBook, setSelectedBook] = useState(null)
   const [swapLoading, setSwapLoading] = useState(false)
   const [success, setSuccess] = useState(false)
   const [existingConv, setExistingConv] = useState(null)
+  const [toast, setToast] = useState(null)
 
   const COLORS = [
     'linear-gradient(135deg,#7C3AED,#A78BFA)',
     'linear-gradient(135deg,#2563EB,#60A5FA)',
     'linear-gradient(135deg,#0F766E,#34D399)',
   ]
+
+  const showToast = (msg, type = 'info') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 3000)
+  }
 
   useEffect(() => {
     fetchBook()
@@ -34,11 +40,18 @@ export default function BookDetail({ onOpenAuth }) {
   }, [id, user])
 
   const fetchBook = async () => {
-    const { data } = await supabase
+    setLoading(true)
+    setError(null)
+    const { data, error } = await supabase
       .from('books')
       .select('*, profiles(id, name, city, rating, trades_count, avatar_url)')
-      .eq('id', id).single()
-    setBook(data)
+      .eq('id', id)
+      .single()
+    if (error) {
+      setError('Buch konnte nicht geladen werden. Bitte versuche es erneut.')
+    } else {
+      setBook(data)
+    }
     setLoading(false)
   }
 
@@ -50,12 +63,10 @@ export default function BookDetail({ onOpenAuth }) {
     setMyBooks(data || [])
   }
 
-  // Bug 3 fix: check if conversation already exists with this book owner
   const checkExistingConversation = async () => {
     const { data: bookData } = await supabase
       .from('books').select('user_id').eq('id', id).single()
     if (!bookData) return
-
     const ownerId = bookData.user_id
     const { data: conv } = await supabase
       .from('conversations')
@@ -75,7 +86,7 @@ export default function BookDetail({ onOpenAuth }) {
     if (existingConv) {
       navigate('/chat')
     } else {
-      onOpenAuth && alert('Starte zuerst einen Tausch, um Nachrichten senden zu können.')
+      showToast('Starte zuerst einen Tausch, um Nachrichten senden zu können.', 'info')
     }
   }
 
@@ -89,20 +100,34 @@ export default function BookDetail({ onOpenAuth }) {
       offered_book_id: selectedBook.id,
       status: 'pending'
     }).select().single()
-    
-    // Send email notification to book owner
-    if (!error && newSwap) {
-      fetch(`https://jtncwqysnnqvkixgvgyn.supabase.co/functions/v1/send-notification`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-        },
-        body: JSON.stringify({ type: 'new_request', swapRequestId: newSwap.id })
-      })
+
+    if (error) {
+      showToast('Fehler beim Senden der Anfrage. Bitte versuche es erneut.', 'error')
+      setSwapLoading(false)
+      return
     }
+
+    // Send email notification
+    if (newSwap) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        await fetch(`https://jtncwqysnnqvkixgvgyn.supabase.co/functions/v1/send-notification`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+          },
+          body: JSON.stringify({ type: 'new_request', swapRequestId: newSwap.id })
+        })
+      } catch (e) {
+        // E-Mail Fehler ist nicht kritisch, Anfrage wurde trotzdem gesendet
+        console.warn('E-Mail Benachrichtigung fehlgeschlagen:', e)
+      }
+    }
+
     setSwapLoading(false)
-    if (!error) { setSwapOpen(false); setSuccess(true) }
+    setSwapOpen(false)
+    setSuccess(true)
   }
 
   if (loading) return (
@@ -110,6 +135,25 @@ export default function BookDetail({ onOpenAuth }) {
       <Spinner size={36} />
     </div>
   )
+
+  if (error) return (
+    <div style={{ minHeight: '100vh', background: C.bg }}>
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button onClick={() => navigate(-1)} style={{ width: 36, height: 36, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <ChevronLeft size={20} color={C.muted} />
+        </button>
+        <span style={{ fontWeight: 700, fontSize: '0.95rem', color: C.text }}>Buchdetails</span>
+      </div>
+      <div style={{ padding: '4rem 2rem', textAlign: 'center', color: C.muted }}>
+        <div style={{ fontSize: '3rem', marginBottom: 12 }}>😕</div>
+        <p style={{ fontWeight: 600, marginBottom: 8, color: C.text }}>{error}</p>
+        <button onClick={fetchBook} style={{ padding: '0.6rem 1.5rem', borderRadius: 10, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.purple, cursor: 'pointer', fontWeight: 600 }}>
+          Erneut versuchen
+        </button>
+      </div>
+    </div>
+  )
+
   if (!book) return (
     <div style={{ padding: '2rem', textAlign: 'center', color: C.muted }}>Buch nicht gefunden.</div>
   )
@@ -155,8 +199,7 @@ export default function BookDetail({ onOpenAuth }) {
 
         {/* Owner */}
         {book.profiles && (
-          <Card style={{ padding: '1.2rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}
-            onClick={() => navigate(`/user/${book.profiles.id}`)}>
+          <Card style={{ padding: '1.2rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }} onClick={() => navigate(`/user/${book.profiles.id}`)}>
             <Avatar letter={book.profiles.name || '?'} size={48} src={book.profiles.avatar_url} />
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 700, color: C.text, fontSize: '0.95rem' }}>{book.profiles.name}</div>
@@ -169,23 +212,14 @@ export default function BookDetail({ onOpenAuth }) {
           </Card>
         )}
 
-        {/* Action buttons — only show if not own book */}
+        {/* Action buttons */}
         {!isOwnBook && (
           <div style={{ display: 'flex', gap: 12 }}>
-            <PrimaryBtn
-              onClick={handleSwapClick}
-              style={{ flex: 1, padding: '1rem', borderRadius: 14, fontSize: '1rem' }}
-              icon={ArrowLeftRight}
-            >
+            <PrimaryBtn onClick={handleSwapClick} style={{ flex: 1, padding: '1rem', borderRadius: 14, fontSize: '1rem' }} icon={ArrowLeftRight}>
               Tausch anbieten
             </PrimaryBtn>
-            {/* Bug 3 fix: Nachricht only shows if conversation exists */}
             {existingConv && (
-              <GhostBtn
-                onClick={handleMessageClick}
-                style={{ borderRadius: 14, fontSize: '0.95rem', padding: '1rem 1.2rem' }}
-                icon={MessageCircle}
-              >
+              <GhostBtn onClick={handleMessageClick} style={{ borderRadius: 14, fontSize: '0.95rem', padding: '1rem 1.2rem' }} icon={MessageCircle}>
                 Nachricht
               </GhostBtn>
             )}
@@ -212,7 +246,6 @@ export default function BookDetail({ onOpenAuth }) {
                 <X size={16} color={C.muted} />
               </button>
             </div>
-
             {myBooks.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '1.5rem', color: C.muted }}>
                 <p style={{ marginBottom: 12 }}>Du hast noch keine Bücher eingestellt.</p>
@@ -232,12 +265,7 @@ export default function BookDetail({ onOpenAuth }) {
                   ))}
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <PrimaryBtn
-                    onClick={handleSwapConfirm}
-                    disabled={!selectedBook || swapLoading}
-                    style={{ flex: 1, borderRadius: 12 }}
-                    icon={Check}
-                  >
+                  <PrimaryBtn onClick={handleSwapConfirm} disabled={!selectedBook || swapLoading} style={{ flex: 1, borderRadius: 12 }} icon={Check}>
                     {swapLoading ? 'Wird gesendet...' : 'Anfrage senden'}
                   </PrimaryBtn>
                   <GhostBtn onClick={() => setSwapOpen(false)} style={{ borderRadius: 12 }}>Abbrechen</GhostBtn>
@@ -266,7 +294,9 @@ export default function BookDetail({ onOpenAuth }) {
           </div>
         </div>
       )}
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+
+      {toast && <Toast msg={toast.msg} type={toast.type} />}
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
     </div>
   )
 }
