@@ -106,8 +106,10 @@ export default function Profile() {
 
   // Get the other person in a swap
   const getOtherPerson = (swap) => {
-    if (swap.requester_id === user.id) return swap.owner
-    return swap.requester
+    if (swap.requester_id === user.id) {
+      return { ...swap.owner, id: swap.owner_id }
+    }
+    return { ...swap.requester, id: swap.requester_id }
   }
 
   return (
