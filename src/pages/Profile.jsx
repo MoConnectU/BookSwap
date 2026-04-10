@@ -39,7 +39,8 @@ export default function Profile() {
       { data: books },
       { data: swaps },
       { data: completed },
-      { data: reviews }
+      { data: reviews },
+      { data: received }
     ] = await Promise.all([
       supabase.from('books')
         .select('*')
@@ -56,6 +57,10 @@ export default function Profile() {
         .order('created_at', { ascending: false }),
       supabase.from('reviews')
         .select('*, reviewer:profiles!reviewer_id(name, avatar_url)')
+        .eq('reviewer_id', user.id)
+        .order('created_at', { ascending: false }),
+      supabase.from('reviews')
+        .select('*, reviewer:profiles!reviewer_id(name, avatar_url)')
         .eq('reviewed_id', user.id)
         .order('created_at', { ascending: false })
     ])
@@ -63,6 +68,7 @@ export default function Profile() {
     setSwapRequests(swaps || [])
     setCompletedSwaps(completed || [])
     setMyReviews(reviews || [])
+    setReceivedReviews(received || [])
     setLoading(false)
   }, [user])
 
@@ -269,7 +275,7 @@ export default function Profile() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {completedSwaps.map(s => {
                 const otherPerson = getOtherPerson(s)
-                const review = myReviews.find(r => r.swap_id === s.id)
+                const review = receivedReviews.find(r => r.swap_id === s.id)
                 const alreadyReviewed = hasReviewed(s.id)
                 return (
                   <Card key={s.id} style={{ padding: '1.2rem' }}>
