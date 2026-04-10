@@ -18,12 +18,14 @@ function InnerApp() {
   const [authOpen, setAuthOpen] = useState(false)
   const [authContext, setAuthContext] = useState('')
   const [pendingReview, setPendingReview] = useState(null) // { otherUser, swapId }
+  const [dismissedSwaps, setDismissedSwaps] = useState(new Set())
 
   // Reset everything when user logs out
   useEffect(() => {
     if (!user) {
       setAuthOpen(false)
       setPendingReview(null)
+      setDismissedSwaps(new Set())
     }
   }, [user])
 
@@ -33,7 +35,7 @@ function InnerApp() {
   }
 
   const triggerReview = (otherUser, swapId) => {
-    if (otherUser?.id && otherUser?.name && swapId) {
+    if (otherUser?.id && otherUser?.name && swapId && !dismissedSwaps.has(swapId)) {
       setPendingReview({ otherUser, swapId })
     }
   }
@@ -61,8 +63,8 @@ function InnerApp() {
         <ReviewModal
           otherUser={pendingReview.otherUser}
           swapId={pendingReview.swapId}
-          onClose={() => setPendingReview(null)}
-          onSaved={() => setPendingReview(null)}
+          onClose={() => { setDismissedSwaps(prev => new Set([...prev, pendingReview.swapId])); setPendingReview(null) }}
+          onSaved={() => { setDismissedSwaps(prev => new Set([...prev, pendingReview.swapId])); setPendingReview(null) }}
         />
       )}
     </div>
