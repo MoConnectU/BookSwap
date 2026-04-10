@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Check, LogOut, Trash2, MessageCircle, Edit2, Camera, X, Star } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
-import { C, Card, Avatar, Badge, PrimaryBtn, GhostBtn, Spinner } from '../components/UI'
+import { C, Card, Avatar, Badge, PrimaryBtn, Spinner } from '../components/UI'
 
 const COLORS = [
   'linear-gradient(135deg,#7C3AED,#A78BFA)',
@@ -12,12 +12,18 @@ const COLORS = [
   'linear-gradient(135deg,#D97706,#FCD34D)',
 ]
 
+function ratingDisplay(r) {
+  if (!r || r === 0) return 'Neu'
+  return r.toFixed(1) + '★'
+}
+
 export default function Profile() {
   const navigate = useNavigate()
   const { user, profile, signOut, refreshProfile } = useAuth()
   const [myBooks, setMyBooks] = useState([])
   const [swapRequests, setSwapRequests] = useState([])
   const [completedSwaps, setCompletedSwaps] = useState([])
+  const [myReviews, setMyReviews] = useState([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('books')
   const [deleting, setDeleting] = useState(null)
@@ -31,20 +37,31 @@ export default function Profile() {
 
   const fetchMyData = async () => {
     setLoading(true)
-    const [{ data: books }, { data: swaps }, { data: completed }] = await Promise.all([
+    const [
+      { data: books },
+      { data: swaps },
+      { data: completed },
+      { data: reviews }
+    ] = await Promise.all([
       supabase.from('books').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
       supabase.from('swap_requests')
         .select('*, books!requested_book_id(title, author), profiles!requester_id(name, avatar_url)')
         .eq('owner_id', user.id).eq('status', 'pending'),
       supabase.from('swap_requests')
-        .select('*, requested:books!requested_book_id(title), offered:books!offered_book_id(title), requester:profiles!requester_id(name), owner:profiles!owner_id(name)')
+        .select('id, created_at, requester_id, owner_id, requested:books!requested_book_id(title), offered:books!offered_book_id(title), requester:profiles!requester_id(name), owner:profiles!owner_id(name)')
         .or(`requester_id.eq.${user.id},owner_id.eq.${user.id}`)
         .eq('status', 'completed')
+        .order('created_at', { ascending: false }),
+      // Reviews that others gave ME
+      supabase.from('reviews')
+        .select('*, reviewer:profiles!reviewer_id(name, avatar_url)')
+        .eq('reviewed_id', user.id)
         .order('created_at', { ascending: false })
     ])
     setMyBooks(books || [])
     setSwapRequests(swaps || [])
     setCompletedSwaps(completed || [])
+    setMyReviews(reviews || [])
     setLoading(false)
   }
 
@@ -77,7 +94,6 @@ export default function Profile() {
       <div style={{ background: `linear-gradient(135deg,${C.purple},${C.blue})`, padding: '2.5rem 1.5rem 3.5rem' }}>
         <div style={{ maxWidth: 700, margin: '0 auto', display: 'flex', gap: 16, alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            {/* Avatar with edit overlay */}
             <div style={{ position: 'relative', flexShrink: 0 }}>
               <Avatar letter={name} size={72} src={profile?.avatar_url} />
               <button onClick={() => setEditOpen(true)} style={{ position: 'absolute', bottom: -2, right: -2, width: 24, height: 24, borderRadius: '50%', background: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
@@ -96,7 +112,11 @@ export default function Profile() {
                 {profile?.city ? `📍 ${profile.city} · ` : ''}{user?.email}
               </p>
               <div style={{ display: 'flex', gap: 20, marginTop: 10 }}>
-                {[[myBooks.length,'Bücher'],[profile?.trades_count||0,'Tausche'],[profile?.rating && profile.rating > 0 ? profile.rating.toFixed(1)+'★' : 'Neu','Bewertung']].map(([n,l]) => (
+                {[
+                  [myBooks.length, 'Bücher'],
+                  [profile?.trades_count || 0, 'Tausche'],
+                  [ratingDisplay(profile?.rating), 'Bewertung']
+                ].map(([n, l]) => (
                   <div key={l}>
                     <div style={{ fontWeight: 900, fontSize: '1.2rem', color: '#fff' }}>{n}</div>
                     <div style={{ fontSize: '0.7rem', opacity: 0.65, color: '#fff' }}>{l}</div>
@@ -126,8 +146,12 @@ export default function Profile() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: 20 }}>
-          {[['books','Mein Regal'],['swaps',`Anfragen (${swapRequests.length})`],['history','Verlauf']].map(([id,label]) => (
-            <div key={id} onClick={() => setTab(id)} style={{ padding: '0.7rem 1.1rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', color: tab===id?C.text:C.muted, borderBottom: `2px solid ${tab===id?C.purple:'transparent'}`, marginBottom: -1, position: 'relative', whiteSpace: 'nowrap' }}>
+          {[
+            ['books', 'Mein Regal'],
+            ['swaps', `Anfragen (${swapRequests.length})`],
+            ['history', `Verlauf (${completedSwaps.length})`]
+          ].map(([id, label]) => (
+            <div key={id} onClick={() => setTab(id)} style={{ padding: '0.7rem 1.1rem', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem', color: tab === id ? C.text : C.muted, borderBottom: `2px solid ${tab === id ? C.purple : 'transparent'}`, marginBottom: -1, position: 'relative', whiteSpace: 'nowrap' }}>
               {label}
               {id === 'swaps' && swapRequests.length > 0 && (
                 <span style={{ position: 'absolute', top: 6, right: 2, width: 16, height: 16, borderRadius: '50%', background: C.purple, color: '#fff', fontSize: '0.6rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{swapRequests.length}</span>
@@ -139,6 +163,7 @@ export default function Profile() {
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}><Spinner /></div>
         ) : tab === 'books' ? (
+          // ── MY BOOKS ──────────────────────────────────────────
           myBooks.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>📚</div>
@@ -159,7 +184,8 @@ export default function Profile() {
                       <Check size={11} /> {b.is_available ? 'Online' : 'Getauscht'} · {b.condition}
                     </div>
                     {b.is_available && (
-                      <button onClick={() => handleDeleteBook(b.id, b.cover_url)} disabled={deleting === b.id} style={{ width: '100%', padding: '0.45rem', borderRadius: 8, border: '1px solid #FEE2E2', background: '#FFF5F5', color: '#EF4444', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                      <button onClick={() => handleDeleteBook(b.id, b.cover_url)} disabled={deleting === b.id}
+                        style={{ width: '100%', padding: '0.45rem', borderRadius: 8, border: '1px solid #FEE2E2', background: '#FFF5F5', color: '#EF4444', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
                         <Trash2 size={12} />{deleting === b.id ? 'Löschen...' : 'Löschen'}
                       </button>
                     )}
@@ -169,6 +195,7 @@ export default function Profile() {
             </div>
           )
         ) : tab === 'swaps' ? (
+          // ── SWAP REQUESTS ─────────────────────────────────────
           swapRequests.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>🤝</div>
@@ -188,10 +215,12 @@ export default function Profile() {
                     <Badge>Neu</Badge>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button onClick={() => handleSwapResponse(s.id, 'accepted')} disabled={responding === s.id} style={{ flex: 1, padding: '0.65rem', borderRadius: 10, border: 'none', background: responding === s.id ? C.border : `linear-gradient(135deg,${C.purple},${C.blue})`, color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      <Check size={14} /> {responding === s.id ? 'Wird angenommen...' : 'Annehmen → Chat öffnet sich'}
+                    <button onClick={() => handleSwapResponse(s.id, 'accepted')} disabled={responding === s.id}
+                      style={{ flex: 1, padding: '0.65rem', borderRadius: 10, border: 'none', background: responding === s.id ? C.border : `linear-gradient(135deg,${C.purple},${C.blue})`, color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <Check size={14} />{responding === s.id ? 'Wird angenommen...' : 'Annehmen → Chat öffnet sich'}
                     </button>
-                    <button onClick={() => handleSwapResponse(s.id, 'declined')} disabled={responding === s.id} style={{ padding: '0.65rem 1rem', borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
+                    <button onClick={() => handleSwapResponse(s.id, 'declined')} disabled={responding === s.id}
+                      style={{ padding: '0.65rem 1rem', borderRadius: 10, border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer' }}>
                       Ablehnen
                     </button>
                   </div>
@@ -200,7 +229,7 @@ export default function Profile() {
             </div>
           )
         ) : (
-          // HISTORY TAB
+          // ── HISTORY TAB ───────────────────────────────────────
           completedSwaps.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>📖</div>
@@ -211,15 +240,17 @@ export default function Profile() {
               {completedSwaps.map(s => {
                 const isRequester = s.requester_id === user.id
                 const otherName = isRequester ? s.owner?.name : s.requester?.name
+                // Find review for this swap
+                const review = myReviews.find(r => r.swap_id === s.id)
                 return (
                   <Card key={s.id} style={{ padding: '1.2rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: review ? 12 : 0 }}>
                       <div>
                         <p style={{ fontWeight: 700, color: C.text, fontSize: '0.9rem', marginBottom: 4 }}>
                           Tausch mit {otherName || 'Nutzer'}
                         </p>
                         <p style={{ fontSize: '0.8rem', color: C.muted }}>
-                          📚 {s.requested?.title || 'Buch'} ⇄ {s.offered?.title || 'Buch'}
+                          📚 {s.requested?.title || '?'} ⇄ {s.offered?.title || '?'}
                         </p>
                         <p style={{ fontSize: '0.72rem', color: C.muted, marginTop: 4 }}>
                           {new Date(s.created_at).toLocaleDateString('de-DE')}
@@ -227,6 +258,23 @@ export default function Profile() {
                       </div>
                       <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.3rem 0.7rem', borderRadius: 100 }}>✓ Abgeschlossen</span>
                     </div>
+                    {/* Show review received for this swap */}
+                    {review && (
+                      <div style={{ background: C.bg, borderRadius: 10, padding: '0.75rem', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <Avatar letter={review.reviewer?.name || '?'} size={32} src={review.reviewer?.avatar_url} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: C.text }}>{review.reviewer?.name}</span>
+                            <div style={{ display: 'flex', gap: 2 }}>
+                              {[1,2,3,4,5].map(s => (
+                                <Star key={s} size={11} color={C.warning} fill={s <= review.rating ? C.warning : 'transparent'} />
+                              ))}
+                            </div>
+                          </div>
+                          {review.comment && <p style={{ fontSize: '0.8rem', color: C.muted }}>{review.comment}</p>}
+                        </div>
+                      </div>
+                    )}
                   </Card>
                 )
               })}
@@ -235,14 +283,11 @@ export default function Profile() {
         )}
       </div>
 
-      {/* EDIT PROFILE MODAL */}
+      {/* Edit Profile Modal */}
       {editOpen && (
-        <EditProfileModal
-          profile={profile}
-          user={user}
+        <EditProfileModal profile={profile} user={user}
           onClose={() => setEditOpen(false)}
-          onSaved={() => { setEditOpen(false); refreshProfile() }}
-        />
+          onSaved={() => { setEditOpen(false); refreshProfile() }} />
       )}
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
@@ -269,27 +314,19 @@ function EditProfileModal({ profile, user, onClose, onSaved }) {
     if (!name.trim()) { setError('Name darf nicht leer sein.'); return }
     setSaving(true)
     setError('')
-
     let avatar_url = profile?.avatar_url || null
-
-    // Upload new avatar if selected
     if (avatarFile) {
       const ext = avatarFile.name.split('.').pop()
       const filename = `avatars/${user.id}.${ext}`
-      const { error: uploadError } = await supabase.storage
-        .from('book-covers')
-        .upload(filename, avatarFile, { upsert: true })
+      const { error: uploadError } = await supabase.storage.from('book-covers').upload(filename, avatarFile, { upsert: true })
       if (!uploadError) {
         const { data } = supabase.storage.from('book-covers').getPublicUrl(filename)
         avatar_url = data.publicUrl
       }
     }
-
-    const { error: updateError } = await supabase
-      .from('profiles')
+    const { error: updateError } = await supabase.from('profiles')
       .update({ name: name.trim(), city: city.trim() || null, avatar_url })
       .eq('id', user.id)
-
     setSaving(false)
     if (updateError) { setError('Fehler beim Speichern.'); return }
     onSaved()
@@ -303,10 +340,7 @@ function EditProfileModal({ profile, user, onClose, onSaved }) {
         <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, width: 32, height: 32, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <X size={16} color={C.muted} />
         </button>
-
         <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: C.text, marginBottom: 20 }}>Profil bearbeiten</h2>
-
-        {/* Avatar upload */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
           <div style={{ position: 'relative' }}>
             {avatarPreview ? (
@@ -322,19 +356,11 @@ function EditProfileModal({ profile, user, onClose, onSaved }) {
             </div>
           </label>
         </div>
-
         <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#374151', marginBottom: 5 }}>Name *</label>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Dein Name" style={inputStyle} />
-
         <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#374151', marginBottom: 5 }}>Stadt</label>
         <input value={city} onChange={e => setCity(e.target.value)} placeholder="z.B. Berlin" style={{ ...inputStyle, marginBottom: 16 }} />
-
-        {error && (
-          <div style={{ background: '#FEE2E2', color: '#EF4444', padding: '0.65rem 1rem', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>
-            {error}
-          </div>
-        )}
-
+        {error && <div style={{ background: '#FEE2E2', color: '#EF4444', padding: '0.65rem 1rem', borderRadius: 8, fontSize: '0.82rem', marginBottom: 12 }}>{error}</div>}
         <PrimaryBtn onClick={handleSave} disabled={saving} style={{ width: '100%', borderRadius: 12, padding: '0.85rem' }} icon={Check}>
           {saving ? 'Wird gespeichert...' : 'Speichern'}
         </PrimaryBtn>
