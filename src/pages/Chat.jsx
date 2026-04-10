@@ -4,9 +4,8 @@ import { ChevronLeft, Send, Check, Package } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { C, Avatar, Spinner } from '../components/UI'
-import ReviewModal from '../components/ReviewModal'
 
-export default function Chat() {
+export default function Chat({ onTriggerReview }) {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [conversations, setConversations] = useState([])
@@ -19,7 +18,6 @@ export default function Chat() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [completing, setCompleting] = useState(false)
-  const [showReview, setShowReview] = useState(false)
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -108,7 +106,7 @@ export default function Chat() {
     fetchConversations()
     setCompleting(false)
     // Small delay then show review
-    setTimeout(() => setShowReview(true), 300)
+    setTimeout(() => onTriggerReview && onTriggerReview(otherUser, swapId), 300)
   }
 
   // ── CONVERSATION LIST ────────────────────────────────────────
@@ -214,15 +212,7 @@ export default function Chat() {
         </div>
       ) : null}
 
-      {/* Review Modal */}
-      {showReview && otherUser?.id && otherUser?.name && swapId && (
-        <ReviewModal
-          otherUser={otherUser}
-          swapId={swapId}
-          onClose={() => setShowReview(false)}
-          onSaved={() => setShowReview(false)}
-        />
-      )}
+
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
