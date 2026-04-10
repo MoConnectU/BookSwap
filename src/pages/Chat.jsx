@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { C, Avatar, Spinner } from '../components/UI'
 
-export default function Chat({ onTriggerReview }) {
+export default function Chat() {
   const navigate = useNavigate()
   const { user } = useAuth()
   const [conversations, setConversations] = useState([])
@@ -21,15 +21,7 @@ export default function Chat({ onTriggerReview }) {
   const bottomRef = useRef(null)
 
   useEffect(() => {
-    if (!user) {
-      // Reset all state on logout
-      setShowReview(false)
-      setActiveConv(null)
-      setOtherUser(null)
-      setSwapId(null)
-      navigate('/')
-      return
-    }
+    if (!user) { navigate('/'); return }
     fetchConversations()
   }, [user])
 
@@ -82,8 +74,14 @@ export default function Chat({ onTriggerReview }) {
     setSending(true)
     const text = newMsg.trim()
     setNewMsg('')
-    await supabase.from('messages').insert({ conversation_id: activeConv.id, sender_id: user.id, text })
-    await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', activeConv.id)
+    await supabase.from('messages').insert({
+      conversation_id: activeConv.id,
+      sender_id: user.id,
+      text
+    })
+    await supabase.from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', activeConv.id)
     setSending(false)
   }
 
@@ -105,8 +103,8 @@ export default function Chat({ onTriggerReview }) {
     setActiveConv(prev => ({ ...prev, status: 'completed' }))
     fetchConversations()
     setCompleting(false)
-    // Small delay then show review
-    // Review trigger disabled - handled in Profile history tab
+    // Navigate to profile to leave review from history tab
+    navigate('/profile')
   }
 
   // ── CONVERSATION LIST ────────────────────────────────────────
@@ -154,11 +152,13 @@ export default function Chat({ onTriggerReview }) {
           <div style={{ fontSize: '0.72rem', color: C.muted }}>📚 {bookTitle || '...'}</div>
         </div>
         {isCompleted && (
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.4rem 0.8rem', borderRadius: 100 }}>✓ Abgeschlossen</span>
+          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.4rem 0.8rem', borderRadius: 100 }}>
+            ✓ Abgeschlossen
+          </span>
         )}
       </div>
 
-      {/* Info banner - only when active */}
+      {/* Info banner */}
       {!isCompleted && (
         <div style={{ background: C.purpleLight, padding: '0.6rem 1.5rem', textAlign: 'center', fontSize: '0.78rem', color: C.purple, fontWeight: 500 }}>
           Tausch vereinbart! Klärt hier Versanddetails. Wenn beide Bücher angekommen sind → "Tausch abschließen"
@@ -192,7 +192,7 @@ export default function Chat({ onTriggerReview }) {
         <div ref={bottomRef} />
       </div>
 
-      {/* Bottom area */}
+      {/* Bottom */}
       {!isCompleted ? (
         <div style={{ background: C.surface, borderTop: `1px solid ${C.border}`, padding: '0.75rem 1rem', flexShrink: 0 }}>
           <button onClick={handleCompleteSwap} disabled={completing}
@@ -210,9 +210,11 @@ export default function Chat({ onTriggerReview }) {
             </button>
           </div>
         </div>
-      ) : null}
-
-
+      ) : (
+        <div style={{ background: C.successLight, padding: '1rem', textAlign: 'center', fontSize: '0.85rem', color: C.success, fontWeight: 600, flexShrink: 0 }}>
+          ✓ Tausch abgeschlossen — Bewertung im Profil unter "Verlauf" abgeben
+        </div>
+      )}
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
