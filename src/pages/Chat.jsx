@@ -106,7 +106,7 @@ export default function Chat({ onTriggerReview }) {
     fetchConversations()
     setCompleting(false)
     // Small delay then show review
-    setTimeout(() => onTriggerReview && onTriggerReview(otherUser, swapId), 300)
+    // Review trigger disabled - handled in Profile history tab
   }
 
   // ── CONVERSATION LIST ────────────────────────────────────────
