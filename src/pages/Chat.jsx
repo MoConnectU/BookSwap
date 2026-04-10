@@ -23,7 +23,15 @@ export default function Chat() {
   const bottomRef = useRef(null)
 
   useEffect(() => {
-    if (!user) { navigate('/'); return }
+    if (!user) {
+      // Reset all state on logout
+      setShowReview(false)
+      setActiveConv(null)
+      setOtherUser(null)
+      setSwapId(null)
+      navigate('/')
+      return
+    }
     fetchConversations()
   }, [user])
 
@@ -207,7 +215,7 @@ export default function Chat() {
       ) : null}
 
       {/* Review Modal */}
-      {showReview && otherUser && swapId && (
+      {showReview && otherUser?.id && otherUser?.name && swapId && (
         <ReviewModal
           otherUser={otherUser}
           swapId={swapId}
