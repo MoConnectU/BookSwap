@@ -59,6 +59,8 @@ export default function ReviewModal({ otherUser, swapId, onClose, onSaved }) {
     }
 
     setSaving(false)
+    // Refresh own profile so rating updates immediately in UI
+    if (refreshProfile) await refreshProfile()
     onSaved()
   }
 
