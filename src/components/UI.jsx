@@ -1,21 +1,28 @@
-// ── Design tokens ────────────────────────────────────────────
+// ── Design tokens — warme Buchhandlungs-Palette ──────────────────
 export const C = {
-  purple: '#7C3AED',
-  purpleLight: '#EDE9FE',
-  purpleMid: '#A78BFA',
-  blue: '#2563EB',
-  blueLight: '#DBEAFE',
+  // Hauptfarben (warm, organisch)
+  purple: '#C8843A',        // Amber — Hauptakzent statt Lila
+  purpleLight: '#FDF3E7',   // Helles Amber
+  purpleMid: '#E8A96A',     // Mittleres Amber
+  blue: '#5C7A5E',          // Sage-Grün — statt Blau
+  blueLight: '#E8F0E9',     // Helles Sage
   white: '#FFFFFF',
-  bg: '#F8F7FF',
+  bg: '#FDFAF4',            // Warmes Papier-Weiß
   surface: '#FFFFFF',
-  border: '#E5E7EB',
-  text: '#111827',
-  muted: '#6B7280',
-  success: '#10B981',
-  successLight: '#D1FAE5',
-  warning: '#F59E0B',
-  error: '#EF4444',
-  errorLight: '#FEE2E2',
+  border: '#E8DDD0',        // Warme Grenze statt kaltes Grau
+  text: '#1A1612',          // Warmes Tinte-Schwarz
+  muted: '#8C7B6B',         // Warmes Graubraun
+  success: '#5C7A5E',       // Sage-Grün als Erfolgsfarbe
+  successLight: '#E8F0E9',
+  warning: '#C8843A',       // Amber auch für Warnings
+  error: '#C0392B',
+  errorLight: '#FDECEA',
+
+  // Zusätzliche warme Töne
+  bark: '#3D2B1F',          // Dunkles Braun für Hero
+  cream: '#F5F0E8',         // Creme
+  paper: '#EDE5D4',         // Papierfarbe
+  dust: '#A89880',          // Staubiges Beige
 }
 
 // ── Avatar ────────────────────────────────────────────────────
@@ -24,7 +31,7 @@ export const Avatar = ({ letter, size = 36, src }) => {
     <img src={src} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
   )
   return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: `linear-gradient(135deg, ${C.purple}, ${C.blue})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: size * 0.38, color: '#fff', flexShrink: 0 }}>
+    <div style={{ width: size, height: size, borderRadius: '50%', background: `linear-gradient(135deg, ${C.bark}, ${C.purple})`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: size * 0.38, color: '#fff', flexShrink: 0 }}>
       {letter?.charAt(0).toUpperCase()}
     </div>
   )
@@ -37,9 +44,12 @@ export const Badge = ({ children, color = C.purple, bg = C.purpleLight }) => (
   </span>
 )
 
-export const condColor = (c) => c === 'Wie neu' ? C.success : c === 'Sehr gut' ? C.blue : C.warning
+export const condColor = (c) =>
+  c === 'Wie neu' ? C.blue :
+  c === 'Sehr gut' ? '#7A9E7E' :
+  C.purple
 
-// ── CondBadge — compact, never full width ─────────────────────
+// ── CondBadge — kompakt, nie full-width ───────────────────────
 export const CondBadge = ({ cond }) => {
   const color = condColor(cond)
   return (
@@ -62,41 +72,90 @@ export const CondBadge = ({ cond }) => {
 
 // ── Card ──────────────────────────────────────────────────────
 export const Card = ({ children, style = {}, onClick }) => (
-  <div onClick={onClick} style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.border}`, overflow: 'hidden', transition: 'all 0.2s', cursor: onClick ? 'pointer' : 'default', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', ...style }}>
+  <div onClick={onClick} style={{
+    background: C.surface,
+    borderRadius: 16,
+    border: `1px solid ${C.border}`,
+    overflow: 'hidden',
+    transition: 'all 0.2s',
+    cursor: onClick ? 'pointer' : 'default',
+    boxShadow: '0 1px 4px rgba(26,22,18,0.06)',
+    ...style
+  }}>
     {children}
   </div>
 )
 
 // ── Buttons ───────────────────────────────────────────────────
 export const PrimaryBtn = ({ children, onClick, style = {}, icon: Icon, disabled, type = 'button' }) => (
-  <button type={type} onClick={onClick} disabled={disabled} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '0.75rem 1.5rem', background: disabled ? C.border : `linear-gradient(135deg, ${C.purple}, ${C.blue})`, color: disabled ? C.muted : '#fff', border: 'none', borderRadius: 12, fontWeight: 600, fontSize: '0.92rem', cursor: disabled ? 'not-allowed' : 'pointer', transition: 'all 0.18s', boxShadow: disabled ? 'none' : '0 4px 14px rgba(124,58,237,0.3)', ...style }}>
+  <button type={type} onClick={onClick} disabled={disabled} style={{
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+    padding: '0.75rem 1.5rem',
+    background: disabled ? C.border : `linear-gradient(135deg, ${C.bark}, ${C.purple})`,
+    color: disabled ? C.muted : '#fff',
+    border: 'none', borderRadius: 12, fontWeight: 600, fontSize: '0.92rem',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    transition: 'all 0.18s',
+    boxShadow: disabled ? 'none' : '0 4px 14px rgba(61,43,31,0.25)',
+    ...style
+  }}>
     {Icon && <Icon size={16} />}{children}
   </button>
 )
 
 export const GhostBtn = ({ children, onClick, style = {}, icon: Icon }) => (
-  <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '0.65rem 1.2rem', background: 'transparent', color: C.muted, border: `1.5px solid ${C.border}`, borderRadius: 12, fontWeight: 500, fontSize: '0.88rem', cursor: 'pointer', transition: 'all 0.18s', ...style }}>
+  <button onClick={onClick} style={{
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+    padding: '0.65rem 1.2rem',
+    background: 'transparent',
+    color: C.muted,
+    border: `1.5px solid ${C.border}`,
+    borderRadius: 12, fontWeight: 500, fontSize: '0.88rem',
+    cursor: 'pointer', transition: 'all 0.18s',
+    ...style
+  }}>
     {Icon && <Icon size={15} />}{children}
   </button>
 )
 
 // ── Toast ─────────────────────────────────────────────────────
 export const Toast = ({ msg, type = 'info' }) => (
-  <div style={{ position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)', background: type === 'error' ? C.error : C.text, color: '#fff', padding: '0.7rem 1.5rem', borderRadius: 100, fontSize: '0.85rem', zIndex: 999, whiteSpace: 'nowrap', boxShadow: '0 8px 24px rgba(0,0,0,0.2)', animation: 'fadeUp 0.3s ease' }}>
+  <div style={{
+    position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
+    background: type === 'error' ? C.error : C.bark,
+    color: '#fff', padding: '0.7rem 1.5rem',
+    borderRadius: 100, fontSize: '0.85rem', zIndex: 999,
+    whiteSpace: 'nowrap', boxShadow: '0 8px 24px rgba(26,22,18,0.25)',
+    animation: 'fadeUp 0.3s ease'
+  }}>
     {msg}
   </div>
 )
 
 // ── Spinner ───────────────────────────────────────────────────
 export const Spinner = ({ size = 24 }) => (
-  <div style={{ width: size, height: size, border: `3px solid ${C.purpleLight}`, borderTop: `3px solid ${C.purple}`, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+  <div style={{
+    width: size, height: size,
+    border: `3px solid ${C.purpleLight}`,
+    borderTop: `3px solid ${C.purple}`,
+    borderRadius: '50%',
+    animation: 'spin 0.8s linear infinite'
+  }} />
 )
 
 // ── Input ─────────────────────────────────────────────────────
 export const Input = ({ label, ...props }) => (
   <div style={{ marginBottom: 12 }}>
-    {label && <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#374151', marginBottom: 5 }}>{label}</label>}
-    <input {...props} style={{ width: '100%', padding: '0.75rem 1rem', border: `1.5px solid ${C.border}`, borderRadius: 10, outline: 'none', fontSize: '0.9rem', color: '#111827', background: C.bg, transition: 'border-color 0.18s', ...props.style }} />
+    {label && <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 5 }}>{label}</label>}
+    <input {...props} style={{
+      width: '100%', padding: '0.75rem 1rem',
+      border: `1.5px solid ${C.border}`,
+      borderRadius: 10, outline: 'none',
+      fontSize: '0.9rem', color: C.text,
+      background: C.bg,
+      transition: 'border-color 0.18s',
+      ...props.style
+    }} />
   </div>
 )
 
