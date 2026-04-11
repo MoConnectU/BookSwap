@@ -64,7 +64,7 @@ export default function Profile() {
       { data: received }
     ] = await Promise.all([
       // Meine Bücher
-      supabase.from('books').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+      supabase.from('books').select('*').eq('user_id', user.id).eq('is_available', true).order('created_at', { ascending: false }),
 
       // Eingehende PENDING Anfragen (jemand will mein Buch)
       supabase.from('swap_requests')
