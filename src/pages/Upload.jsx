@@ -323,7 +323,7 @@ export default function UploadPage() {
     setIsbnLoading(false)
   }
 
-  // Foto-Scan für iPhone: Foto aufnehmen → Barcode aus Bild lesen
+  // Foto-Scan für iPhone — liest Barcode aus Foto via Canvas + BarcodeDetector
   const handlePhotoScan = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -331,29 +331,26 @@ export default function UploadPage() {
     setIsbnError('')
 
     try {
-      // Dynamisch laden — funktioniert auf allen Browsern inkl. Safari iOS
-      const { BrowserMultiFormatReader, NotFoundException } = await import('@zxing/browser')
-      const reader = new BrowserMultiFormatReader()
-      const imgUrl = URL.createObjectURL(file)
-      const img = new Image()
-      img.src = imgUrl
-      await new Promise(r => { img.onload = r; img.onerror = r })
-
-      try {
-        const result = await reader.decodeFromImageElement(img)
+      if ('BarcodeDetector' in window) {
+        const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a'] })
+        const imgUrl = URL.createObjectURL(file)
+        const img = new Image()
+        img.src = imgUrl
+        await new Promise(r => { img.onload = r; img.onerror = r })
+        const codes = await detector.detect(img)
         URL.revokeObjectURL(imgUrl)
-        if (result?.text) {
-          const scanned = result.text.replace(/[-\s]/g, '')
+        if (codes.length > 0) {
+          const scanned = codes[0].rawValue.replace(/[-\s]/g, '')
           setIsbn(scanned)
           await handleISBNLookup(scanned)
           return
         }
-      } catch (e) {
-        URL.revokeObjectURL(imgUrl)
+        setIsbnError('Kein Barcode erkannt. Bitte ISBN manuell eingeben.')
+      } else {
+        setIsbnError('Barcode-Scan wird auf diesem Gerät nicht unterstützt. Bitte ISBN manuell eingeben.')
       }
-      setIsbnError('Kein Barcode erkannt. Bitte ISBN manuell eingeben.')
     } catch (e) {
-      setIsbnError('Scanner konnte nicht geladen werden. Bitte ISBN manuell eingeben.')
+      setIsbnError('Fehler beim Scannen. Bitte ISBN manuell eingeben.')
     }
     setIsbnLoading(false)
     if (photoScanRef.current) photoScanRef.current.value = ''
