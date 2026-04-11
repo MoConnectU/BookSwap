@@ -67,6 +67,10 @@ export default function BookDetail({ onOpenAuth }) {
 
   const handleSwapClick = () => {
     if (!user) { onOpenAuth('Melde dich an, um einen Tausch anzubieten.'); return }
+    if (myBooks.length === 0) {
+      showToast('Du hast noch kein Buch eingestellt. Stell zuerst eines ein um tauschen zu können.', 'info')
+      return
+    }
     setSwapOpen(true)
   }
 
