@@ -47,7 +47,13 @@ export default function BookDetail({ onOpenAuth }) {
       .select('*, profiles(id, name, city, rating, trades_count, avatar_url)')
       .eq('id', id).single()
     if (error) setError('Buch konnte nicht geladen werden. Bitte versuche es erneut.')
-    else setBook(data)
+    else {
+      setBook(data)
+      // view_count hochzählen — nur wenn nicht eigenes Buch
+      if (data && user?.id !== data.user_id) {
+        supabase.rpc('increment_view_count', { book_id: id }).catch(() => {})
+      }
+    }
     setLoading(false)
   }
 
@@ -129,41 +135,18 @@ export default function BookDetail({ onOpenAuth }) {
         <span style={{ fontWeight: 700, fontSize: '0.95rem', color: C.text }}>Buchdetails</span>
       </div>
 
-      {/* Hero Cover */}
       <div style={{ height: 200, background: book.cover_url ? `url(${book.cover_url}) center/cover` : gradient, position: 'relative' }}>
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.6))' }} />
       </div>
 
       <div style={{ maxWidth: 700, margin: '-60px auto 0', padding: '0 1.5rem 3rem', position: 'relative' }}>
-        {/* Titel-Bereich: Buchcover + Name */}
         <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-end', marginBottom: 20 }}>
-          {/* Mini-Cover */}
           <div style={{ width: 100, height: 140, borderRadius: '6px 14px 14px 6px', background: book.cover_url ? `url(${book.cover_url}) center/cover` : gradient, flexShrink: 0, boxShadow: '0 12px 32px rgba(0,0,0,0.25)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0.5rem' }}>
             {!book.cover_url && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#fff', textAlign: 'center', lineHeight: 1.3 }}>{book.title}</span>}
           </div>
-
-          {/* Titel + Autor — jetzt auf weißem Hintergrund → dunkel */}
-          <div style={{
-            flex: 1,
-            paddingBottom: 8,
-            paddingTop: 70, // Abstand damit es unter dem Hero-Übergang liegt
-          }}>
-            <h1 style={{
-              fontSize: '1.5rem',
-              fontWeight: 900,
-              color: C.bark,        // ✅ Warmes Dunkelbraun statt Weiß
-              marginBottom: 4,
-              lineHeight: 1.2,
-            }}>
-              {book.title}
-            </h1>
-            <p style={{
-              color: C.muted,       // ✅ Warmes Graubraun statt halbtransparent weiß
-              fontSize: '0.95rem',
-              fontWeight: 500,
-            }}>
-              {book.author}
-            </p>
+          <div style={{ flex: 1, paddingBottom: 8, paddingTop: 70 }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: C.bark, marginBottom: 4, lineHeight: 1.2 }}>{book.title}</h1>
+            <p style={{ color: C.muted, fontSize: '0.95rem', fontWeight: 500 }}>{book.author}</p>
           </div>
         </div>
 
@@ -211,7 +194,6 @@ export default function BookDetail({ onOpenAuth }) {
         )}
       </div>
 
-      {/* SWAP MODAL */}
       {swapOpen && (
         <div onClick={() => setSwapOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(17,24,39,0.6)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <div onClick={e => e.stopPropagation()} style={{ background: C.surface, borderRadius: 20, padding: '2rem', maxWidth: 480, width: '100%', boxShadow: '0 24px 60px rgba(0,0,0,0.2)' }}>
@@ -222,34 +204,23 @@ export default function BookDetail({ onOpenAuth }) {
               </div>
               <button onClick={() => setSwapOpen(false)} style={{ width: 32, height: 32, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} color={C.muted} /></button>
             </div>
-            {myBooks.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '1.5rem', color: C.muted }}>
-                <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>📚</div>
-                <p style={{ marginBottom: 6, fontWeight: 600, color: C.text }}>Kein Buch zum Tauschen verfügbar.</p>
-                <p style={{ fontSize: '0.82rem', marginBottom: 16, lineHeight: 1.6 }}>Stell eines deiner Bücher ein und komm dann zurück!</p>
-                <PrimaryBtn onClick={() => { setSwapOpen(false); navigate('/upload') }}>Jetzt Buch einstellen</PrimaryBtn>
-              </div>
-            ) : (
-              <>
-                <p style={{ fontSize: '0.78rem', fontWeight: 600, color: C.muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                  Welches deiner Bücher bietest du an?
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 8, marginBottom: 20 }}>
-                  {myBooks.map((b, i) => (
-                    <div key={b.id} onClick={() => setSelectedBook(b)} style={{ border: `2px solid ${selectedBook?.id === b.id ? C.purple : C.border}`, borderRadius: 12, padding: '0.75rem 0.5rem', cursor: 'pointer', background: selectedBook?.id === b.id ? C.purpleLight : 'transparent', textAlign: 'center', transition: 'all 0.18s' }}>
-                      <div style={{ width: 40, height: 55, borderRadius: '3px 7px 7px 3px', background: b.cover_url ? `url(${b.cover_url}) center/cover` : COLORS[i % COLORS.length], margin: '0 auto 6px', boxShadow: '1px 2px 6px rgba(0,0,0,0.15)' }} />
-                      <span style={{ fontSize: '0.7rem', color: C.text, fontWeight: 600, display: 'block', lineHeight: 1.2 }}>{b.title}</span>
-                    </div>
-                  ))}
+            <p style={{ fontSize: '0.78rem', fontWeight: 600, color: C.muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Welches deiner Bücher bietest du an?
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 8, marginBottom: 20 }}>
+              {myBooks.map((b, i) => (
+                <div key={b.id} onClick={() => setSelectedBook(b)} style={{ border: `2px solid ${selectedBook?.id === b.id ? C.purple : C.border}`, borderRadius: 12, padding: '0.75rem 0.5rem', cursor: 'pointer', background: selectedBook?.id === b.id ? C.purpleLight : 'transparent', textAlign: 'center', transition: 'all 0.18s' }}>
+                  <div style={{ width: 40, height: 55, borderRadius: '3px 7px 7px 3px', background: b.cover_url ? `url(${b.cover_url}) center/cover` : COLORS[i % COLORS.length], margin: '0 auto 6px', boxShadow: '1px 2px 6px rgba(0,0,0,0.15)' }} />
+                  <span style={{ fontSize: '0.7rem', color: C.text, fontWeight: 600, display: 'block', lineHeight: 1.2 }}>{b.title}</span>
                 </div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <PrimaryBtn onClick={handleSwapConfirm} disabled={!selectedBook || swapLoading} style={{ flex: 1, borderRadius: 12 }} icon={Check}>
-                    {swapLoading ? 'Wird gesendet...' : 'Anfrage senden'}
-                  </PrimaryBtn>
-                  <GhostBtn onClick={() => setSwapOpen(false)} style={{ borderRadius: 12 }}>Abbrechen</GhostBtn>
-                </div>
-              </>
-            )}
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <PrimaryBtn onClick={handleSwapConfirm} disabled={!selectedBook || swapLoading} style={{ flex: 1, borderRadius: 12 }} icon={Check}>
+                {swapLoading ? 'Wird gesendet...' : 'Anfrage senden'}
+              </PrimaryBtn>
+              <GhostBtn onClick={() => setSwapOpen(false)} style={{ borderRadius: 12 }}>Abbrechen</GhostBtn>
+            </div>
           </div>
         </div>
       )}
@@ -277,7 +248,6 @@ export default function BookDetail({ onOpenAuth }) {
   )
 }
 
-// ── EDIT BOOK MODAL ────────────────────────────────────────────
 function EditBookModal({ book, user, onClose, onSaved }) {
   const [title, setTitle] = useState(book.title || '')
   const [author, setAuthor] = useState(book.author || '')
