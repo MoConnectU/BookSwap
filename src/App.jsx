@@ -15,6 +15,7 @@ import ResetPassword from './pages/ResetPassword'
 import NotFound from './pages/NotFound'
 import Impressum from './pages/Impressum'
 import Datenschutz from './pages/Datenschutz'
+import Admin from './pages/Admin'
 import { Spinner } from './components/UI'
 
 function PrivateRoute({ children }) {
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route path="/user/:id" element={<PublicProfile />} />
         <Route path="/impressum" element={<Impressum />} />
         <Route path="/datenschutz" element={<Datenschutz />} />
+        <Route path="/admin" element={<Admin />} />
         {/* Protected routes */}
         <Route path="/upload" element={<PrivateRoute><Upload /></PrivateRoute>} />
         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
