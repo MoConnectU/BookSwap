@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/AuthContext'
 import Nav from './components/Nav'
+import Footer from './components/Footer'
 import AuthModal from './components/AuthModal'
 import Landing from './pages/Landing'
 import Explore from './pages/Explore'
@@ -12,9 +13,10 @@ import Chat from './pages/Chat'
 import PublicProfile from './pages/PublicProfile'
 import ResetPassword from './pages/ResetPassword'
 import NotFound from './pages/NotFound'
+import Impressum from './pages/Impressum'
+import Datenschutz from './pages/Datenschutz'
 import { Spinner } from './components/UI'
 
-// Route Guard: redirect to home if not logged in
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return (
@@ -39,15 +41,16 @@ function AppRoutes() {
         <Route path="/book/:id" element={<BookDetail onOpenAuth={openAuth} />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/user/:id" element={<PublicProfile />} />
-
+        <Route path="/impressum" element={<Impressum />} />
+        <Route path="/datenschutz" element={<Datenschutz />} />
         {/* Protected routes */}
         <Route path="/upload" element={<PrivateRoute><Upload /></PrivateRoute>} />
         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
         <Route path="/chat" element={<PrivateRoute><Chat /></PrivateRoute>} />
-
         {/* 404 */}
         <Route path="*" element={<NotFound />} />
       </Routes>
+      <Footer />
       {authOpen && (
         <AuthModal contextMsg={authContext} onClose={() => setAuthOpen(false)} />
       )}
