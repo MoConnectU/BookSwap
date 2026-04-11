@@ -29,13 +29,16 @@ function decodeHtml(str) {
 }
 
 // ── Kategorie erkennen ────────────────────────────────────────
-function detectCategory(s) {
-  s = (s || '').toLowerCase()
+function detectCategory(subjectStr, titleStr) {
+  const s = ((subjectStr || '') + ' ' + (titleStr || '')).toLowerCase()
   if (s.includes('kinder') || s.includes('jugend') || s.includes('children')) return 'Kinder / Jugend'
   if (s.includes('krimi') || s.includes('thriller') || s.includes('crime') || s.includes('spionage')) return 'Krimi / Thriller'
   if (s.includes('fantasy') || s.includes('science fiction') || s.includes('sci-fi')) return 'Fantasy / SciFi'
   if (s.includes('schul') || s.includes('lehrbuch') || s.includes('studium')) return 'Schulbuch'
-  if (s.includes('sachbuch') || s.includes('ratgeber') || s.includes('nonfiction')) return 'Sachbuch'
+  if (s.includes('ratgeber') || s.includes('sorge') || s.includes('erfolg') || s.includes('gesundheit') ||
+      s.includes('kochen') || s.includes('rezept') || s.includes('selbst') || s.includes('leben') ||
+      s.includes('nonfiction') || s.includes('sachbuch') || s.includes('wissen')) return 'Ratgeber'
+  if (s.includes('sachbuch') || s.includes('biografi') || s.includes('geschichte') || s.includes('politik')) return 'Sachbuch'
   return 'Roman'
 }
 
@@ -54,7 +57,7 @@ async function lookupISBN(isbn) {
         title: decodeHtml(book.title),
         author: decodeHtml(book.authors?.[0]?.name || ''),
         description: decodeHtml(typeof book.notes === 'string' ? book.notes : book.notes?.value || ''),
-        category: detectCategory(book.subjects?.map(s => s.name || s).join(' ') || ''),
+        category: detectCategory(book.subjects?.map(s => s.name || s).join(' ') || '', book.title),
       }
     }
   } catch (e) {}
@@ -97,7 +100,7 @@ async function lookupISBN(isbn) {
           title,
           author: decodeHtml(author),
           description: dnbDesc,
-          category: detectCategory(t653),
+          category: detectCategory(t653, t245a?.[1]),
         }
         if (!result) {
           result = dnb
@@ -443,7 +446,7 @@ export default function UploadPage() {
           )}
           {isbnSuccess && (
             <div style={{ marginTop: 10, padding: '0.5rem 0.75rem', background: '#D1FAE5', borderRadius: 8, fontSize: '0.78rem', color: '#065F46', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Check size={14} /> Buch gefunden! Bitte Felder prüfen und Zustand auswählen.
+              <Check size={14} /> Buch gefunden! Titel & Autor ausgefüllt — bitte Kategorie und Beschreibung prüfen.
             </div>
           )}
         </Card>
@@ -525,3 +528,4 @@ export default function UploadPage() {
     </div>
   )
 }
+
