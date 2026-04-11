@@ -72,8 +72,9 @@ export default function Profile() {
         .eq('owner_id', user.id)
         .eq('status', 'pending'),
 
-      // ALLE Anfragen wo ich beteiligt bin (außer pending eingehende)
-      // = gesendete (ich bin requester) + empfangene non-pending (ich bin owner)
+      // VERLAUF: gesendete Anfragen ALLE status (Mo sieht Warte auf Rückmeldung)
+      //          + empfangene Anfragen die NICHT mehr pending sind (accepted/declined/completed)
+      //          Eingehende pending → separater "Anfragen" Tab
       supabase.from('swap_requests')
         .select(`
           id, created_at, status, requester_id, owner_id,
@@ -82,9 +83,8 @@ export default function Profile() {
           requester:profiles!requester_id(id, name, avatar_url),
           owner:profiles!owner_id(id, name, avatar_url)
         `)
-        .or(`requester_id.eq.${user.id},owner_id.eq.${user.id}`)
+        .or(`requester_id.eq.${user.id},and(owner_id.eq.${user.id},status.neq.pending)`)
         .not('hidden_for', 'cs', `{${user.id}}`)
-        .not(`and(owner_id.eq.${user.id},status.eq.pending)`)  // eingehende pending ausblenden (sind im "Anfragen" Tab)
         .order('created_at', { ascending: false }),
 
       supabase.from('reviews').select('*, reviewer:profiles!reviewer_id(name, avatar_url)').eq('reviewer_id', user.id).order('created_at', { ascending: false }),
