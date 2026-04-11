@@ -8,125 +8,248 @@ import { C, Card, PrimaryBtn } from '../components/UI'
 const CONDITIONS = ['Wie neu', 'Sehr gut', 'Gut', 'Akzeptabel']
 const CATEGORIES = ['Roman', 'Sachbuch', 'Schulbuch', 'Studium / Fachbuch', 'Krimi / Thriller', 'Fantasy / SciFi', 'Kinder / Jugend', 'Ratgeber', 'Sonstiges']
 
-// ── HTML Entities dekodieren (Fix für "&#152;" etc.) ──────────
-function decodeHtmlEntities(str) {
+// ── QuaggaJS über CDN laden (kein npm nötig) ──────────────────
+function loadQuagga() {
+  return new Promise((resolve, reject) => {
+    if (window.Quagga) { resolve(window.Quagga); return }
+    const script = document.createElement('script')
+    script.src = 'https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js'
+    script.onload = () => resolve(window.Quagga)
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+}
+
+// ── HTML Entities dekodieren ──────────────────────────────────
+function decodeHtml(str) {
   if (!str) return ''
   const txt = document.createElement('textarea')
   txt.innerHTML = str
-  // Zusätzlich unsichtbare Unicode-Zeichen entfernen
   return txt.value.replace(/[\u0080-\u009F]/g, '').trim()
 }
 
-// ── Kategorie aus Subjects ableiten ───────────────────────────
-function detectCategory(subjectStr) {
-  const s = (subjectStr || '').toLowerCase()
+// ── Kategorie erkennen ────────────────────────────────────────
+function detectCategory(s) {
+  s = (s || '').toLowerCase()
   if (s.includes('kinder') || s.includes('jugend') || s.includes('children')) return 'Kinder / Jugend'
-  if (s.includes('krimi') || s.includes('crime') || s.includes('thriller') || s.includes('mystery') || s.includes('spionage')) return 'Krimi / Thriller'
-  if (s.includes('fantasy') || s.includes('science fiction') || s.includes('sci-fi') || s.includes('scifi')) return 'Fantasy / SciFi'
-  if (s.includes('schul') || s.includes('lehrbuch') || s.includes('school') || s.includes('studium')) return 'Schulbuch'
-  if (s.includes('sachbuch') || s.includes('nonfiction') || s.includes('non-fiction') || s.includes('ratgeber')) return 'Sachbuch'
-  if (s.includes('roman') || s.includes('fiction') || s.includes('novel') || s.includes('belletristik') || s.includes('erzähl')) return 'Roman'
+  if (s.includes('krimi') || s.includes('thriller') || s.includes('crime') || s.includes('spionage')) return 'Krimi / Thriller'
+  if (s.includes('fantasy') || s.includes('science fiction') || s.includes('sci-fi')) return 'Fantasy / SciFi'
+  if (s.includes('schul') || s.includes('lehrbuch') || s.includes('studium')) return 'Schulbuch'
+  if (s.includes('sachbuch') || s.includes('ratgeber') || s.includes('nonfiction')) return 'Sachbuch'
   return 'Roman'
 }
 
 // ── ISBN Lookup: Open Library + DNB ──────────────────────────
-async function lookupISBNData(isbn) {
+async function lookupISBN(isbn) {
   const clean = isbn.replace(/[-\s]/g, '')
   let result = null
 
-  // 1. Open Library (gut für englische Bücher + hat oft Beschreibungen)
+  // 1. Open Library
   try {
     const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${clean}&format=json&jscmd=data`)
     const data = await res.json()
     const book = data[`ISBN:${clean}`]
     if (book?.title) {
-      const desc = typeof book.notes === 'string' ? book.notes : (book.notes?.value || '')
       result = {
-        title: decodeHtmlEntities(book.title),
-        author: decodeHtmlEntities(book.authors?.[0]?.name || ''),
-        description: decodeHtmlEntities(desc),
+        title: decodeHtml(book.title),
+        author: decodeHtml(book.authors?.[0]?.name || ''),
+        description: decodeHtml(typeof book.notes === 'string' ? book.notes : book.notes?.value || ''),
         category: detectCategory(book.subjects?.map(s => s.name || s).join(' ') || ''),
-        source: 'openlibrary',
       }
     }
   } catch (e) {}
 
-  // 2. DNB — Deutsche Nationalbibliothek (für deutsche Bücher)
+  // 2. DNB — Deutsche Nationalbibliothek
   try {
-    const res = await fetch(
-      `https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&query=isbn%3D${clean}&recordSchema=MARC21-xml&maximumRecords=1`
-    )
+    const res = await fetch(`https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&query=isbn%3D${clean}&recordSchema=MARC21-xml&maximumRecords=1`)
     const xml = await res.text()
-    const numRecords = xml.match(/numberOfRecords>(\d+)</)
-
-    if (numRecords && parseInt(numRecords[1]) > 0) {
-      // Titel (245a = Haupttitel, 245b = Untertitel)
+    const numRecords = parseInt(xml.match(/numberOfRecords>(\d+)</)?.[1] || '0')
+    if (numRecords > 0) {
       const t245a = xml.match(/tag="245"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
       const t245b = xml.match(/tag="245"[^>]*>[\s\S]{0,500}?subfield code="b">([^<]+)</)
+      const t100 = xml.match(/tag="100"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
+      const t700 = xml.match(/tag="700"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
+      const t520 = xml.match(/tag="520"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
+      const t500 = xml.match(/tag="500"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
+      const t653 = [...xml.matchAll(/tag="653"[^>]*>[\s\S]{0,300}?subfield code="a">([^<]+)</g)].map(m => m[1]).join(' ')
 
       if (t245a?.[1]) {
-        // Autor (100a = Haupteintrag Personenname)
-        const t100 = xml.match(/tag="100"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
-        const t700 = xml.match(/tag="700"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
-        let rawAuthor = t100?.[1] || t700?.[1] || ''
-        // "Nachname, Vorname" → "Vorname Nachname"
-        if (rawAuthor.includes(',')) {
-          const parts = rawAuthor.split(',')
-          rawAuthor = (parts[1]?.trim() + ' ' + parts[0]?.trim()).trim()
+        let author = t100?.[1] || t700?.[1] || ''
+        if (author.includes(',')) {
+          const p = author.split(',')
+          author = (p[1]?.trim() + ' ' + p[0]?.trim()).trim()
         }
-
-        // Beschreibung: 520 = Abstract, sonst 500 = Allgemeine Notiz
-        const t520 = xml.match(/tag="520"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
-        const t500 = xml.match(/tag="500"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
-
-        // Kategorie: aus 653 Keywords ableiten
-        const t653all = [...xml.matchAll(/tag="653"[^>]*>[\s\S]{0,300}?subfield code="a">([^<]+)</g)].map(m => m[1]).join(' ')
-
-        // Untertitel anhängen wenn vorhanden
-        let fullTitle = decodeHtmlEntities(t245a[1])
+        let title = decodeHtml(t245a[1])
         if (t245b?.[1]) {
-          const subtitle = decodeHtmlEntities(t245b[1])
-          // Nur anhängen wenn Untertitel kein "limitierte Auflage" etc. ist
-          if (!subtitle.toLowerCase().includes('auflage') && !subtitle.toLowerCase().includes('ausg')) {
-            fullTitle = fullTitle + ' – ' + subtitle
+          const sub = decodeHtml(t245b[1])
+          if (!sub.toLowerCase().includes('auflage') && !sub.toLowerCase().includes('ausg')) {
+            title = title + ' – ' + sub
           }
         }
-
-        const dnbResult = {
-          title: fullTitle,
-          author: decodeHtmlEntities(rawAuthor),
-          description: decodeHtmlEntities(t520?.[1] || t500?.[1] || ''),
-          category: detectCategory(t653all),
-          source: 'dnb',
+        const dnb = {
+          title,
+          author: decodeHtml(author),
+          description: decodeHtml(t520?.[1] || t500?.[1] || ''),
+          category: detectCategory(t653),
         }
-
-        // DNB bevorzugen wenn kein Open Library Ergebnis, oder wenn DNB deutschen Titel hat
         if (!result) {
-          result = dnbResult
+          result = dnb
         } else {
-          // Open Library hatte englischen Titel? DNB überschreibt mit deutschem
-          result.title = dnbResult.title || result.title
-          result.author = dnbResult.author || result.author
-          result.category = dnbResult.category || result.category
-          // Beschreibung: nehme was vorhanden ist
-          if (!result.description && dnbResult.description) result.description = dnbResult.description
+          result.title = dnb.title || result.title
+          result.author = dnb.author || result.author
+          result.category = dnb.category || result.category
+          if (!result.description) result.description = dnb.description
         }
       }
     }
   } catch (e) {}
 
-  // 3. Falls immer noch keine Beschreibung: Open Library Work-Seite versuchen
+  // 3. Beschreibung Fallback via Open Library Search
   if (result && !result.description) {
     try {
-      const workRes = await fetch(`https://openlibrary.org/search.json?isbn=${clean}&fields=key,description,first_sentence`)
-      const workData = await workRes.json()
-      const doc = workData.docs?.[0]
+      const r = await fetch(`https://openlibrary.org/search.json?isbn=${clean}&fields=description,first_sentence`)
+      const d = await r.json()
+      const doc = d.docs?.[0]
       const desc = doc?.description?.value || doc?.description || doc?.first_sentence?.value || ''
-      if (desc) result.description = decodeHtmlEntities(desc)
+      if (desc) result.description = decodeHtml(desc)
     } catch (e) {}
   }
 
   return result
+}
+
+// ── Barcode Scanner Modal (QuaggaJS — iPhone + Android) ───────
+function ScannerModal({ onDetected, onClose }) {
+  const containerRef = useRef(null)
+  const [status, setStatus] = useState('loading')
+  const [errorMsg, setErrorMsg] = useState('')
+  const detectedRef = useRef(false)
+
+  useEffect(() => {
+    let quagga = null
+    let mounted = true
+
+    const start = async () => {
+      try {
+        quagga = await loadQuagga()
+        if (!mounted || !containerRef.current) return
+
+        quagga.init({
+          inputStream: {
+            type: 'LiveStream',
+            target: containerRef.current,
+            constraints: {
+              facingMode: 'environment',
+              width: { min: 640, ideal: 1280 },
+              height: { min: 480, ideal: 720 },
+            },
+          },
+          decoder: {
+            readers: ['ean_reader', 'ean_8_reader', 'upc_reader'],
+          },
+          locate: true,
+          numOfWorkers: 2,
+          frequency: 10,
+        }, (err) => {
+          if (err) {
+            setStatus('error')
+            setErrorMsg('Kamera konnte nicht gestartet werden. Bitte ISBN manuell eingeben.')
+            return
+          }
+          if (!mounted) return
+          quagga.start()
+          setStatus('scanning')
+        })
+
+        quagga.onDetected((data) => {
+          if (detectedRef.current) return
+          const code = data?.codeResult?.code
+          if (code && (code.length === 13 || code.length === 12 || code.length === 8)) {
+            detectedRef.current = true
+            quagga.stop()
+            onDetected(code)
+          }
+        })
+      } catch (e) {
+        if (mounted) {
+          setStatus('error')
+          setErrorMsg('Scanner konnte nicht geladen werden. Bitte ISBN manuell eingeben.')
+        }
+      }
+    }
+
+    start()
+
+    return () => {
+      mounted = false
+      if (quagga && status === 'scanning') {
+        try { quagga.stop() } catch (e) {}
+      }
+    }
+  }, [])
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: '#000', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.5rem', background: 'rgba(0,0,0,0.85)', flexShrink: 0 }}>
+        <span style={{ color: '#fff', fontWeight: 700, fontSize: '1rem' }}>Barcode scannen</span>
+        <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <X size={18} color="#fff" />
+        </button>
+      </div>
+
+      {/* Kamera-View */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {/* QuaggaJS rendert hier das Video */}
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+        {/* Scan-Rahmen Overlay */}
+        {status === 'scanning' && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+            <div style={{ position: 'relative', width: 280, height: 130 }}>
+              {/* Dunkles Overlay außerhalb des Rahmens */}
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: -1 }} />
+              {/* Rahmen */}
+              <div style={{ position: 'absolute', inset: 0, border: '3px solid #C8843A', borderRadius: 12, boxShadow: '0 0 0 2000px rgba(0,0,0,0.5)' }} />
+              {/* Scan-Linie */}
+              <div style={{ position: 'absolute', left: 4, right: 4, height: 2, background: 'rgba(200,132,58,0.9)', animation: 'scanLine 2s ease-in-out infinite' }} />
+            </div>
+          </div>
+        )}
+
+        {/* Loading */}
+        {status === 'loading' && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)', gap: 12 }}>
+            <Loader size={32} color="#C8843A" style={{ animation: 'spin 0.8s linear infinite' }} />
+            <p style={{ color: '#fff', fontSize: '0.85rem' }}>Kamera wird gestartet...</p>
+          </div>
+        )}
+
+        {/* Fehler */}
+        {status === 'error' && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem', background: 'rgba(0,0,0,0.85)' }}>
+            <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 16, padding: '1.5rem', textAlign: 'center', maxWidth: 300 }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: 10 }}>📷</div>
+              <p style={{ color: '#fff', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: 16 }}>{errorMsg}</p>
+              <button onClick={onClose} style={{ padding: '0.65rem 1.5rem', background: C.purple, border: 'none', borderRadius: 10, color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+                Schließen
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ padding: '0.85rem 1.5rem', background: 'rgba(0,0,0,0.85)', textAlign: 'center', color: 'rgba(255,255,255,0.65)', fontSize: '0.78rem', flexShrink: 0 }}>
+        Halte die Kamera ruhig über den <strong style={{ color: 'rgba(255,255,255,0.85)' }}>Barcode auf der Rückseite</strong> des Buches
+      </div>
+
+      <style>{`
+        @keyframes scanLine { 0%,100% { top: 8%; opacity: 0.6 } 50% { top: 82%; opacity: 1 } }
+        #interactive.quagga-loading video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
+        .drawingBuffer { display: none; }
+      `}</style>
+    </div>
+  )
 }
 
 // ── Foto-Slot ─────────────────────────────────────────────────
@@ -162,121 +285,10 @@ function PhotoSlot({ label, preview, onSelect, onRemove }) {
   )
 }
 
-// ── Kamera Scanner Modal ───────────────────────────────────────
-function ScannerModal({ onDetected, onClose }) {
-  const videoRef = useRef(null)
-  const streamRef = useRef(null)
-  const [status, setStatus] = useState('starting') // starting | scanning | error
-  const [errorMsg, setErrorMsg] = useState('')
-  const intervalRef = useRef(null)
-
-  useEffect(() => {
-    startScanner()
-    return () => stopScanner()
-  }, [])
-
-  const stopScanner = () => {
-    if (intervalRef.current) clearInterval(intervalRef.current)
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop())
-      streamRef.current = null
-    }
-  }
-
-  const startScanner = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
-      })
-      streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-      }
-
-      // BarcodeDetector API (Chrome Android + neuere Browser)
-      if ('BarcodeDetector' in window) {
-        const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a'] })
-        setStatus('scanning')
-        intervalRef.current = setInterval(async () => {
-          if (!videoRef.current) return
-          try {
-            const codes = await detector.detect(videoRef.current)
-            if (codes.length > 0) {
-              stopScanner()
-              onDetected(codes[0].rawValue)
-            }
-          } catch (e) {}
-        }, 400)
-      } else {
-        setStatus('error')
-        setErrorMsg('Live-Scanner wird auf diesem Gerät nicht unterstützt. Nutze den "Foto"-Button unten oder gib die ISBN manuell ein.')
-      }
-    } catch (e) {
-      setStatus('error')
-      setErrorMsg('Kamera-Zugriff verweigert oder nicht verfügbar. Bitte ISBN manuell eingeben.')
-    }
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: '#000', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.5rem', background: 'rgba(0,0,0,0.85)', flexShrink: 0 }}>
-        <span style={{ color: '#fff', fontWeight: 700 }}>Barcode scannen</span>
-        <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <X size={18} color="#fff" />
-        </button>
-      </div>
-
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-
-        {/* Scan Rahmen */}
-        {status === 'scanning' && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)' }} />
-            <div style={{ position: 'relative', width: 280, height: 130, zIndex: 1 }}>
-              <div style={{ position: 'absolute', inset: 0, border: '3px solid #C8843A', borderRadius: 12 }} />
-              {/* Scan-Linie Animation */}
-              <div style={{ position: 'absolute', left: 4, right: 4, height: 2, background: 'rgba(200,132,58,0.9)', animation: 'scanLine 2s ease-in-out infinite' }} />
-            </div>
-          </div>
-        )}
-
-        {status === 'error' && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
-            <div style={{ background: 'rgba(0,0,0,0.9)', borderRadius: 16, padding: '1.5rem', textAlign: 'center', maxWidth: 320 }}>
-              <div style={{ fontSize: '2rem', marginBottom: 10 }}>📷</div>
-              <p style={{ color: '#fff', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: 16 }}>{errorMsg}</p>
-              <button onClick={onClose} style={{ padding: '0.65rem 1.5rem', background: C.purple, border: 'none', borderRadius: 10, color: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
-                Schließen
-              </button>
-            </div>
-          </div>
-        )}
-
-        {status === 'starting' && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}>
-            <div style={{ textAlign: 'center' }}>
-              <Loader size={32} color="#C8843A" style={{ animation: 'spin 0.8s linear infinite', marginBottom: 12 }} />
-              <p style={{ color: '#fff', fontSize: '0.85rem' }}>Kamera wird gestartet...</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div style={{ padding: '0.85rem 1.5rem', background: 'rgba(0,0,0,0.85)', textAlign: 'center', color: 'rgba(255,255,255,0.65)', fontSize: '0.78rem', flexShrink: 0 }}>
-        Halte die Kamera ruhig über den Barcode auf der Buchseite
-      </div>
-      <style>{`@keyframes scanLine { 0%,100% { top: 10%; opacity: 0.6 } 50% { top: 80%; opacity: 1 } }`}</style>
-    </div>
-  )
-}
-
 // ── Main ──────────────────────────────────────────────────────
 export default function UploadPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const photoScanRef = useRef(null)
 
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
@@ -297,14 +309,6 @@ export default function UploadPage() {
   const [error, setError] = useState('')
   const [showScanner, setShowScanner] = useState(false)
 
-  const fillFromResult = (result) => {
-    if (result.title) setTitle(result.title)
-    if (result.author) setAuthor(result.author)
-    if (result.description) setDescription(result.description)
-    if (result.category) setCategory(result.category)
-    setIsbnSuccess(true)
-  }
-
   const handleISBNLookup = async (isbnValue) => {
     const clean = (isbnValue || isbn).replace(/[-\s]/g, '')
     if (clean.length < 10) { setIsbnError('ISBN muss mindestens 10 Zeichen haben.'); return }
@@ -313,47 +317,18 @@ export default function UploadPage() {
     setIsbnError('')
     setIsbnSuccess(false)
 
-    const result = await lookupISBNData(clean)
+    const result = await lookupISBN(clean)
 
     if (!result) {
       setIsbnError('Buch nicht gefunden. Bitte Titel und Autor manuell eingeben.')
     } else {
-      fillFromResult(result)
+      if (result.title) setTitle(result.title)
+      if (result.author) setAuthor(result.author)
+      if (result.description) setDescription(result.description)
+      if (result.category) setCategory(result.category)
+      setIsbnSuccess(true)
     }
     setIsbnLoading(false)
-  }
-
-  // Foto-Scan für iPhone — liest Barcode aus Foto via Canvas + BarcodeDetector
-  const handlePhotoScan = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    setIsbnLoading(true)
-    setIsbnError('')
-
-    try {
-      if ('BarcodeDetector' in window) {
-        const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a'] })
-        const imgUrl = URL.createObjectURL(file)
-        const img = new Image()
-        img.src = imgUrl
-        await new Promise(r => { img.onload = r; img.onerror = r })
-        const codes = await detector.detect(img)
-        URL.revokeObjectURL(imgUrl)
-        if (codes.length > 0) {
-          const scanned = codes[0].rawValue.replace(/[-\s]/g, '')
-          setIsbn(scanned)
-          await handleISBNLookup(scanned)
-          return
-        }
-        setIsbnError('Kein Barcode erkannt. Bitte ISBN manuell eingeben.')
-      } else {
-        setIsbnError('Barcode-Scan wird auf diesem Gerät nicht unterstützt. Bitte ISBN manuell eingeben.')
-      }
-    } catch (e) {
-      setIsbnError('Fehler beim Scannen. Bitte ISBN manuell eingeben.')
-    }
-    setIsbnLoading(false)
-    if (photoScanRef.current) photoScanRef.current.value = ''
   }
 
   const uploadImage = async (file) => {
@@ -418,15 +393,15 @@ export default function UploadPage() {
             📱 ISBN scannen oder eingeben
           </h3>
           <p style={{ fontSize: '0.78rem', color: C.muted, marginBottom: 12, lineHeight: 1.5 }}>
-            Scanne den Barcode auf der Rückseite — Titel, Autor & Kategorie werden automatisch ausgefüllt.
+            Scanne den <strong>Barcode auf der Rückseite</strong> des Buches — oder gib die 13-stellige ISBN-Nummer darunter ein.
           </p>
 
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            {/* Live-Scanner Button (Chrome/Android) */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {/* Kamera-Button */}
             <button
               onClick={() => setShowScanner(true)}
               disabled={isbnLoading}
-              title="Live-Kamera Scanner"
+              title="Barcode scannen"
               style={{ width: 48, height: 48, borderRadius: 12, background: isbnLoading ? C.border : `linear-gradient(135deg,${C.bark},${C.purple})`, border: 'none', cursor: isbnLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: isbnLoading ? 'none' : '0 4px 12px rgba(61,43,31,0.25)' }}
             >
               {isbnLoading ? <Loader size={20} color={C.muted} style={{ animation: 'spin 0.8s linear infinite' }} /> : <Camera size={20} color="#fff" />}
@@ -438,7 +413,7 @@ export default function UploadPage() {
                 value={isbn}
                 onChange={e => { setIsbn(e.target.value); setIsbnError(''); setIsbnSuccess(false) }}
                 onKeyDown={e => { if (e.key === 'Enter') handleISBNLookup(isbn) }}
-                placeholder="ISBN eingeben (z.B. 9783442480098)"
+                placeholder="z.B. 9783426573969"
                 style={{ ...inputStyle, paddingRight: isbn.length >= 10 ? '3rem' : '1rem' }}
               />
               {isbn.length >= 10 && !isbnLoading && (
@@ -454,13 +429,6 @@ export default function UploadPage() {
             </div>
           </div>
 
-          {/* Foto-Scan für iPhone (Fallback) */}
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: '0.75rem', color: C.muted, padding: '0.4rem 0.8rem', border: `1px solid ${C.border}`, borderRadius: 8, background: C.cream }}>
-            <input ref={photoScanRef} type="file" accept="image/*" capture="environment" onChange={handlePhotoScan} style={{ display: 'none' }} />
-            📸 Barcode-Foto aufnehmen (iPhone)
-          </label>
-
-          {/* Feedback */}
           {isbnError && (
             <div style={{ marginTop: 10, padding: '0.5rem 0.75rem', background: '#FEE2E2', borderRadius: 8, fontSize: '0.78rem', color: '#991B1B', lineHeight: 1.5 }}>
               ⚠️ {isbnError}
