@@ -1,16 +1,37 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { BookOpen, Home, Compass, Plus, User, MessageCircle, Bell } from 'lucide-react'
+import { Home, Compass, Plus, User, MessageCircle, Bell } from 'lucide-react'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
 import { C, Avatar, PrimaryBtn, GhostBtn } from './UI'
+
+// ── Logo Icon — zwei Bücher die sich tauschen ──────────────────
+const LogoIcon = () => (
+  <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+    <rect width="32" height="32" rx="9" fill="url(#logoGrad)" />
+    {/* Linkes Buch */}
+    <rect x="5" y="8" width="8" height="11" rx="1.5" fill="white" opacity="0.9"/>
+    <rect x="6" y="9" width="2" height="9" rx="1" fill="url(#logoGrad)" opacity="0.6"/>
+    {/* Rechtes Buch */}
+    <rect x="19" y="13" width="8" height="11" rx="1.5" fill="white" opacity="0.9"/>
+    <rect x="20" y="14" width="2" height="9" rx="1" fill="url(#logoGrad)" opacity="0.6"/>
+    {/* Pfeil links nach rechts */}
+    <path d="M14 12 L18 15 L14 18" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" opacity="0.95"/>
+    <defs>
+      <linearGradient id="logoGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#7C3AED"/>
+        <stop offset="1" stopColor="#2563EB"/>
+      </linearGradient>
+    </defs>
+  </svg>
+)
 
 export default function Nav({ onOpenAuth }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, profile } = useAuth()
-  const [pendingCount, setPendingCount] = useState(0)   // neue Tausch-Anfragen
-  const [unreadCount, setUnreadCount] = useState(0)     // ungelesene Chat-Nachrichten
+  const [pendingCount, setPendingCount] = useState(0)
+  const [unreadCount, setUnreadCount] = useState(0)
   const initials = profile?.name || user?.email || '?'
 
   useEffect(() => {
@@ -18,20 +39,12 @@ export default function Nav({ onOpenAuth }) {
     fetchPending()
     fetchUnread()
 
-    // Realtime: neue Tausch-Anfragen
     const subSwaps = supabase.channel('nav_pending')
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'swap_requests',
-        filter: `owner_id=eq.${user.id}`
-      }, () => fetchPending())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'swap_requests', filter: `owner_id=eq.${user.id}` }, () => fetchPending())
       .subscribe()
 
-    // Realtime: neue Nachrichten
     const subMessages = supabase.channel('nav_messages')
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'messages'
-      }, (payload) => {
-        // nur zählen wenn jemand anderes schreibt
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
         if (payload.new.sender_id !== user.id) fetchUnread()
       })
       .subscribe()
@@ -42,7 +55,6 @@ export default function Nav({ onOpenAuth }) {
     }
   }, [user])
 
-  // Badge zurücksetzen wenn man auf /chat oder /profile geht
   useEffect(() => {
     if (location.pathname === '/chat') setUnreadCount(0)
     if (location.pathname === '/profile') setPendingCount(0)
@@ -58,39 +70,25 @@ export default function Nav({ onOpenAuth }) {
   }
 
   const fetchUnread = async () => {
-    // Alle Konversationen des Users holen
     const { data: convs } = await supabase
       .from('conversations')
       .select('id')
       .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
       .eq('status', 'active')
-
     if (!convs || convs.length === 0) { setUnreadCount(0); return }
-
-    // Nachrichten der letzten 7 Tage zählen die nicht vom User selbst sind
-    // und nach dem letzten Besuch des Chats kamen
     const convIds = convs.map(c => c.id)
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-
     const { count } = await supabase
       .from('messages')
       .select('*', { count: 'exact', head: true })
       .in('conversation_id', convIds)
       .neq('sender_id', user.id)
       .gte('created_at', sevenDaysAgo)
-
     setUnreadCount(count || 0)
   }
 
-  const Badge = ({ count }) => (
-    <span style={{
-      position: 'absolute', top: -3, right: -3,
-      minWidth: 16, height: 16, borderRadius: 8,
-      background: '#EF4444', color: '#fff',
-      fontSize: '0.55rem', fontWeight: 800,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      border: '2px solid #fff', padding: '0 2px'
-    }}>
+  const NotifBadge = ({ count }) => (
+    <span style={{ position: 'absolute', top: -3, right: -3, minWidth: 16, height: 16, borderRadius: 8, background: '#EF4444', color: '#fff', fontSize: '0.55rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff', padding: '0 2px' }}>
       {count > 9 ? '9+' : count}
     </span>
   )
@@ -98,39 +96,39 @@ export default function Nav({ onOpenAuth }) {
   return (
     <>
       {/* TOP NAV */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(12px)', borderBottom: `1px solid ${C.border}`, padding: '0 1.5rem', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div onClick={() => navigate('/')} style={{ display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer' }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: `linear-gradient(135deg,${C.purple},${C.blue})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <BookOpen size={16} color="#fff" />
+      <div style={{ position: 'sticky', top: 0, zIndex: 100, background: 'rgba(255,255,255,0.97)', backdropFilter: 'blur(16px)', borderBottom: `1px solid ${C.border}`, padding: '0 1.5rem', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+
+        {/* Logo */}
+        <div onClick={() => navigate('/')} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+          <LogoIcon />
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
+            <span style={{ fontWeight: 900, fontSize: '1.05rem', letterSpacing: '-0.03em', background: `linear-gradient(135deg, ${C.purple}, ${C.blue})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+              BlätterTausch
+            </span>
+            <span style={{ fontSize: '0.58rem', color: C.muted, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Bücher tauschen
+            </span>
           </div>
-          <span style={{ fontWeight: 800, fontSize: '1rem', background: `linear-gradient(135deg,${C.purple},${C.blue})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            BlätterTausch
-          </span>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {/* Right side */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {user ? (
             <>
-              {/* Chat-Button mit Unread-Badge */}
-              <button
-                onClick={() => { setUnreadCount(0); navigate('/chat') }}
-                style={{ position: 'relative', width: 36, height: 36, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              >
+              {/* Chat */}
+              <button onClick={() => { setUnreadCount(0); navigate('/chat') }} style={{ position: 'relative', width: 38, height: 38, borderRadius: 10, background: unreadCount > 0 ? C.purpleLight : C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}>
                 <MessageCircle size={18} color={unreadCount > 0 ? C.purple : C.muted} strokeWidth={unreadCount > 0 ? 2.5 : 1.8} />
-                {unreadCount > 0 && <Badge count={unreadCount} />}
+                {unreadCount > 0 && <NotifBadge count={unreadCount} />}
               </button>
 
-              {/* Glocke mit Pending-Badge */}
-              <button
-                onClick={() => { setPendingCount(0); navigate('/profile') }}
-                style={{ position: 'relative', width: 36, height: 36, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              >
+              {/* Bell */}
+              <button onClick={() => { setPendingCount(0); navigate('/profile') }} style={{ position: 'relative', width: 38, height: 38, borderRadius: 10, background: pendingCount > 0 ? C.purpleLight : C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}>
                 <Bell size={18} color={pendingCount > 0 ? C.purple : C.muted} strokeWidth={pendingCount > 0 ? 2.5 : 1.8} />
-                {pendingCount > 0 && <Badge count={pendingCount} />}
+                {pendingCount > 0 && <NotifBadge count={pendingCount} />}
               </button>
 
-              {/* Avatar — nur Navigation zum Profil */}
-              <div onClick={() => navigate('/profile')} style={{ cursor: 'pointer' }}>
+              {/* Avatar */}
+              <div onClick={() => navigate('/profile')} style={{ cursor: 'pointer', marginLeft: 2 }}>
                 <Avatar letter={initials} size={34} src={profile?.avatar_url} />
               </div>
             </>
@@ -158,16 +156,12 @@ export default function Nav({ onOpenAuth }) {
         ].map(({ path, icon: Icon, label, special, protected: prot, badge }) => {
           const active = location.pathname === path
           return (
-            <button
-              key={path}
-              onClick={() => {
-                if (prot && !user) { onOpenAuth(`Melde dich an, um ${label} zu nutzen.`); return }
-                if (path === '/chat') setUnreadCount(0)
-                if (path === '/profile') setPendingCount(0)
-                navigate(path)
-              }}
-              style={{ flex: 1, padding: '0.7rem 0.5rem 0.6rem', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, position: 'relative' }}
-            >
+            <button key={path} onClick={() => {
+              if (prot && !user) { onOpenAuth(`Melde dich an, um ${label} zu nutzen.`); return }
+              if (path === '/chat') setUnreadCount(0)
+              if (path === '/profile') setPendingCount(0)
+              navigate(path)
+            }} style={{ flex: 1, padding: '0.7rem 0.5rem 0.6rem', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, position: 'relative' }}>
               {special ? (
                 <div style={{ width: 38, height: 38, borderRadius: 12, background: `linear-gradient(135deg,${C.purple},${C.blue})`, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(124,58,237,0.4)' }}>
                   <Icon size={19} color="#fff" />
