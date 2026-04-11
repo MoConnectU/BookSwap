@@ -52,7 +52,13 @@ export default function BookDetail({ onOpenAuth }) {
   }
 
   const fetchMyBooks = async () => {
-    const { data } = await supabase.from('books').select('*').eq('user_id', user.id).eq('is_available', true)
+    // Alle eigenen verfügbaren Bücher laden — AUSSER dem aktuellen Buch
+    const { data } = await supabase
+      .from('books')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_available', true)
+      .neq('id', id)  // das aktuelle Buch ausschließen
     setMyBooks(data || [])
   }
 
@@ -196,16 +202,24 @@ export default function BookDetail({ onOpenAuth }) {
               </div>
               <button onClick={() => setSwapOpen(false)} style={{ width: 32, height: 32, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} color={C.muted} /></button>
             </div>
+
             {myBooks.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '1.5rem', color: C.muted }}>
                 <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>📚</div>
-                <p style={{ marginBottom: 6, fontWeight: 600, color: C.text }}>Du hast noch keine Bücher eingestellt.</p>
-                <p style={{ fontSize: '0.82rem', marginBottom: 16 }}>Stelle zuerst ein Buch ein, dann kannst du tauschen.</p>
-                <PrimaryBtn onClick={() => { setSwapOpen(false); navigate('/upload') }}>Jetzt Buch einstellen</PrimaryBtn>
+                <p style={{ marginBottom: 6, fontWeight: 600, color: C.text }}>Kein Buch zum Tauschen verfügbar.</p>
+                <p style={{ fontSize: '0.82rem', marginBottom: 16, lineHeight: 1.6 }}>
+                  Um einen Tausch anzubieten, musst du selbst ein Buch einstellen.<br />
+                  Stell eines deiner Bücher ein und komm dann zurück!
+                </p>
+                <PrimaryBtn onClick={() => { setSwapOpen(false); navigate('/upload') }}>
+                  Jetzt Buch einstellen
+                </PrimaryBtn>
               </div>
             ) : (
               <>
-                <p style={{ fontSize: '0.78rem', fontWeight: 600, color: C.muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Wähle dein Angebot:</p>
+                <p style={{ fontSize: '0.78rem', fontWeight: 600, color: C.muted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Welches deiner Bücher bietest du an?
+                </p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(120px,1fr))', gap: 8, marginBottom: 20 }}>
                   {myBooks.map((b, i) => (
                     <div key={b.id} onClick={() => setSelectedBook(b)} style={{ border: `2px solid ${selectedBook?.id === b.id ? C.purple : C.border}`, borderRadius: 12, padding: '0.75rem 0.5rem', cursor: 'pointer', background: selectedBook?.id === b.id ? C.purpleLight : 'transparent', textAlign: 'center', transition: 'all 0.18s' }}>
