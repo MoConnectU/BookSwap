@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, Send, Check, Package } from 'lucide-react'
+import { ChevronLeft, Send, Check, Package, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { C, Avatar, Spinner } from '../components/UI'
@@ -19,12 +19,12 @@ export default function Chat() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [completing, setCompleting] = useState(false)
+  const [deletingConv, setDeletingConv] = useState(false)
   const [error, setError] = useState(null)
   const bottomRef = useRef(null)
 
   useEffect(() => {
     if (!user) { navigate('/'); return }
-    // ?conv= ID direkt beim Laden mitgeben
     const convId = searchParams.get('conv')
     fetchConversations(convId)
   }, [user])
@@ -53,6 +53,7 @@ export default function Chat() {
       .from('conversations')
       .select('*')
       .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
+      .not('hidden_for', 'cs', `{${user.id}}`)  // ausblenden wenn User es gelöscht hat
       .order('updated_at', { ascending: false })
 
     if (error) { setError('Nachrichten konnten nicht geladen werden.'); setLoading(false); return }
@@ -60,7 +61,6 @@ export default function Chat() {
     const convs = data || []
     setConversations(convs)
 
-    // Batch load alle Details auf einmal
     if (convs.length > 0) {
       const otherUserIds = convs.map(c => c.user1_id === user.id ? c.user2_id : c.user1_id)
       const swapIds = convs.filter(c => c.swap_request_id).map(c => c.swap_request_id)
@@ -85,14 +85,9 @@ export default function Chat() {
       })
       setConvDetails(details)
 
-      // Direkt die Konversation öffnen wenn ?conv= angegeben
       if (openConvId) {
         const conv = convs.find(c => c.id === openConvId)
-        if (conv) {
-          setActiveConv(conv)
-          setLoading(false)
-          return
-        }
+        if (conv) { setActiveConv(conv); setLoading(false); return }
       }
     }
 
@@ -140,9 +135,7 @@ export default function Chat() {
         try {
           await supabase.rpc('increment_trades', { user_id: swap.requester_id })
           await supabase.rpc('increment_trades', { user_id: swap.owner_id })
-        } catch (rpcErr) {
-          console.warn('Tausch-Zähler konnte nicht aktualisiert werden:', rpcErr)
-        }
+        } catch (rpcErr) { console.warn('Tausch-Zähler Fehler:', rpcErr) }
       }
       await supabase.from('conversations').update({ status: 'completed' }).eq('id', activeConv.id)
       setActiveConv(prev => ({ ...prev, status: 'completed' }))
@@ -155,13 +148,22 @@ export default function Chat() {
     }
   }
 
+  // Konversation für diesen User ausblenden
+  const handleDeleteConversation = async () => {
+    if (!window.confirm('Diesen Chat aus deiner Liste entfernen? Der andere Nutzer sieht ihn weiterhin.')) return
+    setDeletingConv(true)
+    await supabase.rpc('hide_conversation_for_user', { conv_id: activeConv.id, user_id: user.id })
+    setDeletingConv(false)
+    handleBackToList()
+    fetchConversations()
+  }
+
   const handleBackToList = () => {
     setActiveConv(null)
     setOtherUser(null)
     navigate('/chat', { replace: true })
   }
 
-  // ── Spinner während Laden (mit ?conv= zeigen wir nichts bis Chat offen) ──
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: C.bg }}>
@@ -229,6 +231,17 @@ export default function Chat() {
           <div style={{ fontWeight: 700, fontSize: '0.9rem', color: C.text }}>{otherUser?.name || '...'}</div>
           <div style={{ fontSize: '0.72rem', color: C.muted }}>📚 {bookTitle || '...'}</div>
         </div>
+
+        {/* Chat löschen Button */}
+        <button
+          onClick={handleDeleteConversation}
+          disabled={deletingConv}
+          title="Chat aus meiner Liste entfernen"
+          style={{ width: 34, height: 34, borderRadius: '50%', background: C.bg, border: `1px solid ${C.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}
+        >
+          <Trash2 size={14} color={C.muted} />
+        </button>
+
         {isCompleted && (
           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.4rem 0.8rem', borderRadius: 100 }}>✓ Abgeschlossen</span>
         )}
