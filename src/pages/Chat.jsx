@@ -24,21 +24,10 @@ export default function Chat() {
 
   useEffect(() => {
     if (!user) { navigate('/'); return }
-    fetchConversations()
-  }, [user])
-
-  // Direkt eine Konversation öffnen wenn ?conv=ID in der URL steht
-  useEffect(() => {
+    // ?conv= ID direkt beim Laden mitgeben
     const convId = searchParams.get('conv')
-    if (convId && conversations.length > 0) {
-      const conv = conversations.find(c => c.id === convId)
-      if (conv) {
-        setActiveConv(conv)
-        setOtherUser(null)
-        setBookTitle('')
-      }
-    }
-  }, [searchParams, conversations])
+    fetchConversations(convId)
+  }, [user])
 
   useEffect(() => {
     if (!activeConv) return
@@ -57,7 +46,7 @@ export default function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const fetchConversations = async () => {
+  const fetchConversations = async (openConvId = null) => {
     setLoading(true)
     setError(null)
     const { data, error } = await supabase
@@ -95,6 +84,16 @@ export default function Chat() {
         }
       })
       setConvDetails(details)
+
+      // Direkt die Konversation öffnen wenn ?conv= angegeben
+      if (openConvId) {
+        const conv = convs.find(c => c.id === openConvId)
+        if (conv) {
+          setActiveConv(conv)
+          setLoading(false)
+          return
+        }
+      }
     }
 
     setLoading(false)
@@ -159,8 +158,16 @@ export default function Chat() {
   const handleBackToList = () => {
     setActiveConv(null)
     setOtherUser(null)
-    // URL-Parameter entfernen
     navigate('/chat', { replace: true })
+  }
+
+  // ── Spinner während Laden (mit ?conv= zeigen wir nichts bis Chat offen) ──
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: C.bg }}>
+        <Spinner size={36} />
+      </div>
+    )
   }
 
   // ── CONVERSATION LIST ──────────────────────────────────────────
@@ -174,13 +181,11 @@ export default function Chat() {
           <span style={{ fontWeight: 700, fontSize: '0.95rem', color: C.text }}>Nachrichten</span>
         </div>
         <div style={{ maxWidth: 700, margin: '0 auto', padding: '1rem 1.5rem' }}>
-          {loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', padding: '4rem' }}><Spinner size={36} /></div>
-          ) : error ? (
+          {error ? (
             <div style={{ textAlign: 'center', padding: '4rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>😕</div>
               <p style={{ fontWeight: 600, marginBottom: 8, color: C.text }}>{error}</p>
-              <button onClick={fetchConversations} style={{ padding: '0.6rem 1.5rem', borderRadius: 10, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.purple, cursor: 'pointer', fontWeight: 600 }}>Erneut versuchen</button>
+              <button onClick={() => fetchConversations()} style={{ padding: '0.6rem 1.5rem', borderRadius: 10, border: `1.5px solid ${C.border}`, background: 'transparent', color: C.purple, cursor: 'pointer', fontWeight: 600 }}>Erneut versuchen</button>
             </div>
           ) : conversations.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '4rem', color: C.muted }}>
