@@ -75,7 +75,7 @@ export default function Admin() {
   }, [user])
 
   const handleUnlock = () => {
-    if (code === 'swap2024admin') {
+    if (code === 'Al7alawaya3iniAdmin') {
       setUnlocked(true)
       loadStats()
     } else {
