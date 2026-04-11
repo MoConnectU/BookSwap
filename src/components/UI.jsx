@@ -1,28 +1,25 @@
 // ── Design tokens — warme Buchhandlungs-Palette ──────────────────
 export const C = {
-  // Hauptfarben (warm, organisch)
-  purple: '#C8843A',        // Amber — Hauptakzent statt Lila
-  purpleLight: '#FDF3E7',   // Helles Amber
-  purpleMid: '#E8A96A',     // Mittleres Amber
-  blue: '#5C7A5E',          // Sage-Grün — statt Blau
-  blueLight: '#E8F0E9',     // Helles Sage
+  purple: '#C8843A',
+  purpleLight: '#FDF3E7',
+  purpleMid: '#E8A96A',
+  blue: '#5C7A5E',
+  blueLight: '#E8F0E9',
   white: '#FFFFFF',
-  bg: '#FDFAF4',            // Warmes Papier-Weiß
+  bg: '#FDFAF4',
   surface: '#FFFFFF',
-  border: '#E8DDD0',        // Warme Grenze statt kaltes Grau
-  text: '#1A1612',          // Warmes Tinte-Schwarz
-  muted: '#8C7B6B',         // Warmes Graubraun
-  success: '#5C7A5E',       // Sage-Grün als Erfolgsfarbe
+  border: '#E8DDD0',
+  text: '#1A1612',
+  muted: '#8C7B6B',
+  success: '#5C7A5E',
   successLight: '#E8F0E9',
-  warning: '#C8843A',       // Amber auch für Warnings
+  warning: '#C8843A',
   error: '#C0392B',
   errorLight: '#FDECEA',
-
-  // Zusätzliche warme Töne
-  bark: '#3D2B1F',          // Dunkles Braun für Hero
-  cream: '#F5F0E8',         // Creme
-  paper: '#EDE5D4',         // Papierfarbe
-  dust: '#A89880',          // Staubiges Beige
+  bark: '#3D2B1F',
+  cream: '#F5F0E8',
+  paper: '#EDE5D4',
+  dust: '#A89880',
 }
 
 // ── Avatar ────────────────────────────────────────────────────
@@ -44,26 +41,31 @@ export const Badge = ({ children, color = C.purple, bg = C.purpleLight }) => (
   </span>
 )
 
-export const condColor = (c) =>
-  c === 'Wie neu' ? C.blue :
-  c === 'Sehr gut' ? '#7A9E7E' :
-  C.purple
+// ── CondBadge — solider Hintergrund, linksbündig, gut lesbar ──
+const COND_STYLES = {
+  'Wie neu':    { bg: '#2D6A4F', color: '#ffffff' },  // Dunkelgrün
+  'Sehr gut':   { bg: '#4A7C59', color: '#ffffff' },  // Mittelgrün
+  'Gut':        { bg: '#C8843A', color: '#ffffff' },  // Amber
+  'Akzeptabel': { bg: '#8C7B6B', color: '#ffffff' },  // Graubraun
+}
 
-// ── CondBadge — kompakt, nie full-width ───────────────────────
+export const condColor = (c) => COND_STYLES[c]?.bg || C.purple
+
 export const CondBadge = ({ cond }) => {
-  const color = condColor(cond)
+  const style = COND_STYLES[cond] || { bg: C.purple, color: '#fff' }
   return (
     <span style={{
       display: 'inline-block',
-      padding: '0.2rem 0.6rem',
+      alignSelf: 'flex-start',   // linksbündig in flex-Container
+      padding: '0.22rem 0.55rem',
       borderRadius: 6,
-      background: color + '22',
-      color: color,
+      background: style.bg,      // solide Farbe, kein Alpha
+      color: style.color,
       fontSize: '0.68rem',
       fontWeight: 700,
       whiteSpace: 'nowrap',
-      maxWidth: 'fit-content',
       letterSpacing: '0.02em',
+      lineHeight: 1.4,
     }}>
       {cond}
     </span>
@@ -73,14 +75,10 @@ export const CondBadge = ({ cond }) => {
 // ── Card ──────────────────────────────────────────────────────
 export const Card = ({ children, style = {}, onClick }) => (
   <div onClick={onClick} style={{
-    background: C.surface,
-    borderRadius: 16,
-    border: `1px solid ${C.border}`,
-    overflow: 'hidden',
-    transition: 'all 0.2s',
+    background: C.surface, borderRadius: 16, border: `1px solid ${C.border}`,
+    overflow: 'hidden', transition: 'all 0.2s',
     cursor: onClick ? 'pointer' : 'default',
-    boxShadow: '0 1px 4px rgba(26,22,18,0.06)',
-    ...style
+    boxShadow: '0 1px 4px rgba(26,22,18,0.06)', ...style
   }}>
     {children}
   </div>
@@ -94,10 +92,8 @@ export const PrimaryBtn = ({ children, onClick, style = {}, icon: Icon, disabled
     background: disabled ? C.border : `linear-gradient(135deg, ${C.bark}, ${C.purple})`,
     color: disabled ? C.muted : '#fff',
     border: 'none', borderRadius: 12, fontWeight: 600, fontSize: '0.92rem',
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    transition: 'all 0.18s',
-    boxShadow: disabled ? 'none' : '0 4px 14px rgba(61,43,31,0.25)',
-    ...style
+    cursor: disabled ? 'not-allowed' : 'pointer', transition: 'all 0.18s',
+    boxShadow: disabled ? 'none' : '0 4px 14px rgba(61,43,31,0.25)', ...style
   }}>
     {Icon && <Icon size={16} />}{children}
   </button>
@@ -106,13 +102,9 @@ export const PrimaryBtn = ({ children, onClick, style = {}, icon: Icon, disabled
 export const GhostBtn = ({ children, onClick, style = {}, icon: Icon }) => (
   <button onClick={onClick} style={{
     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-    padding: '0.65rem 1.2rem',
-    background: 'transparent',
-    color: C.muted,
-    border: `1.5px solid ${C.border}`,
-    borderRadius: 12, fontWeight: 500, fontSize: '0.88rem',
-    cursor: 'pointer', transition: 'all 0.18s',
-    ...style
+    padding: '0.65rem 1.2rem', background: 'transparent', color: C.muted,
+    border: `1.5px solid ${C.border}`, borderRadius: 12, fontWeight: 500,
+    fontSize: '0.88rem', cursor: 'pointer', transition: 'all 0.18s', ...style
   }}>
     {Icon && <Icon size={15} />}{children}
   </button>
@@ -123,10 +115,9 @@ export const Toast = ({ msg, type = 'info' }) => (
   <div style={{
     position: 'fixed', bottom: 80, left: '50%', transform: 'translateX(-50%)',
     background: type === 'error' ? C.error : C.bark,
-    color: '#fff', padding: '0.7rem 1.5rem',
-    borderRadius: 100, fontSize: '0.85rem', zIndex: 999,
-    whiteSpace: 'nowrap', boxShadow: '0 8px 24px rgba(26,22,18,0.25)',
-    animation: 'fadeUp 0.3s ease'
+    color: '#fff', padding: '0.7rem 1.5rem', borderRadius: 100,
+    fontSize: '0.85rem', zIndex: 999, whiteSpace: 'nowrap',
+    boxShadow: '0 8px 24px rgba(26,22,18,0.25)', animation: 'fadeUp 0.3s ease'
   }}>
     {msg}
   </div>
@@ -138,8 +129,7 @@ export const Spinner = ({ size = 24 }) => (
     width: size, height: size,
     border: `3px solid ${C.purpleLight}`,
     borderTop: `3px solid ${C.purple}`,
-    borderRadius: '50%',
-    animation: 'spin 0.8s linear infinite'
+    borderRadius: '50%', animation: 'spin 0.8s linear infinite'
   }} />
 )
 
@@ -148,13 +138,9 @@ export const Input = ({ label, ...props }) => (
   <div style={{ marginBottom: 12 }}>
     {label && <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 5 }}>{label}</label>}
     <input {...props} style={{
-      width: '100%', padding: '0.75rem 1rem',
-      border: `1.5px solid ${C.border}`,
-      borderRadius: 10, outline: 'none',
-      fontSize: '0.9rem', color: C.text,
-      background: C.bg,
-      transition: 'border-color 0.18s',
-      ...props.style
+      width: '100%', padding: '0.75rem 1rem', border: `1.5px solid ${C.border}`,
+      borderRadius: 10, outline: 'none', fontSize: '0.9rem', color: C.text,
+      background: C.bg, transition: 'border-color 0.18s', ...props.style
     }} />
   </div>
 )
