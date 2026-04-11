@@ -25,9 +25,9 @@ export default function BookDetail({ onOpenAuth }) {
   const [toast, setToast] = useState(null)
 
   const COLORS = [
-    'linear-gradient(135deg,#7C3AED,#A78BFA)',
-    'linear-gradient(135deg,#2563EB,#60A5FA)',
-    'linear-gradient(135deg,#0F766E,#34D399)',
+    'linear-gradient(135deg,#3D2B1F,#C8843A)',
+    'linear-gradient(135deg,#5C7A5E,#A8C5AB)',
+    'linear-gradient(135deg,#8B6B4E,#C8A882)',
   ]
 
   const showToast = (msg, type = 'info') => {
@@ -52,13 +52,8 @@ export default function BookDetail({ onOpenAuth }) {
   }
 
   const fetchMyBooks = async () => {
-    // Alle eigenen verfügbaren Bücher laden — AUSSER dem aktuellen Buch
-    const { data } = await supabase
-      .from('books')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('is_available', true)
-      .neq('id', id)  // das aktuelle Buch ausschließen
+    const { data } = await supabase.from('books').select('*')
+      .eq('user_id', user.id).eq('is_available', true).neq('id', id)
     setMyBooks(data || [])
   }
 
@@ -130,18 +125,41 @@ export default function BookDetail({ onOpenAuth }) {
         <span style={{ fontWeight: 700, fontSize: '0.95rem', color: C.text }}>Buchdetails</span>
       </div>
 
+      {/* Hero Cover */}
       <div style={{ height: 200, background: book.cover_url ? `url(${book.cover_url}) center/cover` : gradient, position: 'relative' }}>
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.5))' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, transparent 30%, rgba(0,0,0,0.6))' }} />
       </div>
 
       <div style={{ maxWidth: 700, margin: '-60px auto 0', padding: '0 1.5rem 3rem', position: 'relative' }}>
+        {/* Titel-Bereich: Buchcover + Name */}
         <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-end', marginBottom: 20 }}>
+          {/* Mini-Cover */}
           <div style={{ width: 100, height: 140, borderRadius: '6px 14px 14px 6px', background: book.cover_url ? `url(${book.cover_url}) center/cover` : gradient, flexShrink: 0, boxShadow: '0 12px 32px rgba(0,0,0,0.25)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0.5rem' }}>
             {!book.cover_url && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#fff', textAlign: 'center', lineHeight: 1.3 }}>{book.title}</span>}
           </div>
-          <div style={{ paddingBottom: 8 }}>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#fff', marginBottom: 2, textShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>{book.title}</h1>
-            <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.9rem', textShadow: '0 1px 4px rgba(0,0,0,0.3)' }}>{book.author}</p>
+
+          {/* Titel + Autor — jetzt auf weißem Hintergrund → dunkel */}
+          <div style={{
+            flex: 1,
+            paddingBottom: 8,
+            paddingTop: 70, // Abstand damit es unter dem Hero-Übergang liegt
+          }}>
+            <h1 style={{
+              fontSize: '1.5rem',
+              fontWeight: 900,
+              color: C.bark,        // ✅ Warmes Dunkelbraun statt Weiß
+              marginBottom: 4,
+              lineHeight: 1.2,
+            }}>
+              {book.title}
+            </h1>
+            <p style={{
+              color: C.muted,       // ✅ Warmes Graubraun statt halbtransparent weiß
+              fontSize: '0.95rem',
+              fontWeight: 500,
+            }}>
+              {book.author}
+            </p>
           </div>
         </div>
 
@@ -170,7 +188,6 @@ export default function BookDetail({ onOpenAuth }) {
           </Card>
         )}
 
-        {/* Fremdes Buch */}
         {!isOwnBook && (
           <div style={{ display: 'flex', gap: 12 }}>
             <PrimaryBtn onClick={handleSwapClick} style={{ flex: 1, padding: '1rem', borderRadius: 14, fontSize: '1rem' }} icon={ArrowLeftRight}>Tausch anbieten</PrimaryBtn>
@@ -178,7 +195,6 @@ export default function BookDetail({ onOpenAuth }) {
           </div>
         )}
 
-        {/* Eigenes Buch */}
         {isOwnBook && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ background: C.purpleLight, borderRadius: 12, padding: '1rem', textAlign: 'center', color: C.purple, fontSize: '0.85rem', fontWeight: 500 }}>
@@ -202,18 +218,12 @@ export default function BookDetail({ onOpenAuth }) {
               </div>
               <button onClick={() => setSwapOpen(false)} style={{ width: 32, height: 32, borderRadius: '50%', background: C.bg, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} color={C.muted} /></button>
             </div>
-
             {myBooks.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '1.5rem', color: C.muted }}>
                 <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>📚</div>
                 <p style={{ marginBottom: 6, fontWeight: 600, color: C.text }}>Kein Buch zum Tauschen verfügbar.</p>
-                <p style={{ fontSize: '0.82rem', marginBottom: 16, lineHeight: 1.6 }}>
-                  Um einen Tausch anzubieten, musst du selbst ein Buch einstellen.<br />
-                  Stell eines deiner Bücher ein und komm dann zurück!
-                </p>
-                <PrimaryBtn onClick={() => { setSwapOpen(false); navigate('/upload') }}>
-                  Jetzt Buch einstellen
-                </PrimaryBtn>
+                <p style={{ fontSize: '0.82rem', marginBottom: 16, lineHeight: 1.6 }}>Stell eines deiner Bücher ein und komm dann zurück!</p>
+                <PrimaryBtn onClick={() => { setSwapOpen(false); navigate('/upload') }}>Jetzt Buch einstellen</PrimaryBtn>
               </div>
             ) : (
               <>
@@ -240,10 +250,8 @@ export default function BookDetail({ onOpenAuth }) {
         </div>
       )}
 
-      {/* EDIT MODAL */}
       {editOpen && <EditBookModal book={book} user={user} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); fetchBook() }} />}
 
-      {/* SUCCESS */}
       {success && (
         <div onClick={() => { setSuccess(false); navigate('/explore') }} style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(17,24,39,0.7)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
           <div onClick={e => e.stopPropagation()} style={{ background: C.surface, borderRadius: 24, padding: '2.5rem', maxWidth: 380, width: '100%', textAlign: 'center', boxShadow: '0 32px 80px rgba(0,0,0,0.25)' }}>
