@@ -35,6 +35,7 @@ export default function Profile() {
   const [editOpen, setEditOpen] = useState(false)
   const [editingBook, setEditingBook] = useState(null)
   const [reviewTarget, setReviewTarget] = useState(null)
+  const [deletingHistory, setDeletingHistory] = useState(null)
 
   const fetchMyData = useCallback(async () => {
     if (!user) return
@@ -53,7 +54,9 @@ export default function Profile() {
       supabase.from('swap_requests')
         .select('id, created_at, requester_id, owner_id, requested:books!requested_book_id(title), offered:books!offered_book_id(title), requester:profiles!requester_id(id, name, avatar_url), owner:profiles!owner_id(id, name, avatar_url)')
         .or(`requester_id.eq.${user.id},owner_id.eq.${user.id}`)
-        .eq('status', 'completed').order('created_at', { ascending: false }),
+        .eq('status', 'completed')
+        .not('hidden_for', 'cs', `{${user.id}}`)  // ausblenden wenn User es gelöscht hat
+        .order('created_at', { ascending: false }),
       supabase.from('reviews').select('*, reviewer:profiles!reviewer_id(name, avatar_url)').eq('reviewer_id', user.id).order('created_at', { ascending: false }),
       supabase.from('reviews').select('*, reviewer:profiles!reviewer_id(name, avatar_url)').eq('reviewed_id', user.id).order('created_at', { ascending: false })
     ])
@@ -86,9 +89,7 @@ export default function Profile() {
   const handleSwapResponse = async (swapId, status) => {
     setResponding(swapId)
     await supabase.from('swap_requests').update({ status }).eq('id', swapId)
-
     if (status === 'accepted') {
-      // E-Mail Benachrichtigung senden
       try {
         const { data: { session } } = await supabase.auth.getSession()
         await fetch(`https://jtncwqysnnqvkixgvgyn.supabase.co/functions/v1/send-notification`, {
@@ -96,50 +97,35 @@ export default function Profile() {
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token}` },
           body: JSON.stringify({ type: 'request_accepted', swapRequestId: swapId })
         })
-      } catch (e) {
-        console.warn('E-Mail fehlgeschlagen:', e)
-      }
+      } catch (e) { console.warn('E-Mail fehlgeschlagen:', e) }
 
-      // Konversation direkt holen und Chat öffnen — kein Zwischenschritt
-      const { data: swap } = await supabase
-        .from('swap_requests')
-        .select('requester_id, owner_id')
-        .eq('id', swapId)
-        .single()
-
+      const { data: swap } = await supabase.from('swap_requests').select('requester_id, owner_id').eq('id', swapId).single()
       if (swap) {
-        const { data: conv } = await supabase
-          .from('conversations')
-          .select('id')
-          .or(`and(user1_id.eq.${swap.requester_id},user2_id.eq.${swap.owner_id}),and(user1_id.eq.${swap.owner_id},user2_id.eq.${swap.requester_id})`)
-          .single()
-
-        if (conv) {
-          setResponding(null)
-          navigate(`/chat?conv=${conv.id}`)
-          return
-        }
+        const { data: conv } = await supabase.from('conversations').select('id')
+          .or(`and(user1_id.eq.${swap.requester_id},user2_id.eq.${swap.owner_id}),and(user1_id.eq.${swap.owner_id},user2_id.eq.${swap.requester_id})`).single()
+        if (conv) { setResponding(null); navigate(`/chat?conv=${conv.id}`); return }
       }
-
-      // Fallback falls Konversation noch nicht da ist (kurz warten)
       setTimeout(async () => {
-        const { data: swap2 } = await supabase
-          .from('swap_requests').select('requester_id, owner_id').eq('id', swapId).single()
+        const { data: swap2 } = await supabase.from('swap_requests').select('requester_id, owner_id').eq('id', swapId).single()
         if (swap2) {
-          const { data: conv2 } = await supabase
-            .from('conversations').select('id')
-            .or(`and(user1_id.eq.${swap2.requester_id},user2_id.eq.${swap2.owner_id}),and(user1_id.eq.${swap2.owner_id},user2_id.eq.${swap2.requester_id})`)
-            .single()
+          const { data: conv2 } = await supabase.from('conversations').select('id')
+            .or(`and(user1_id.eq.${swap2.requester_id},user2_id.eq.${swap2.owner_id}),and(user1_id.eq.${swap2.owner_id},user2_id.eq.${swap2.requester_id})`).single()
           navigate(conv2 ? `/chat?conv=${conv2.id}` : '/chat')
-        } else {
-          navigate('/chat')
-        }
+        } else navigate('/chat')
       }, 800)
       return
     }
-
     setResponding(null)
     fetchMyData()
+  }
+
+  // Verlauf-Eintrag für diesen User ausblenden
+  const handleDeleteHistory = async (swapId) => {
+    if (!window.confirm('Diesen Eintrag aus deinem Verlauf entfernen?')) return
+    setDeletingHistory(swapId)
+    await supabase.rpc('hide_swap_for_user', { swap_id: swapId, user_id: user.id })
+    setCompletedSwaps(prev => prev.filter(s => s.id !== swapId))
+    setDeletingHistory(null)
   }
 
   const handleReviewSaved = async () => {
@@ -290,6 +276,7 @@ export default function Profile() {
             </div>
           )
         ) : (
+          // ── HISTORY TAB ────────────────────────────────────────
           completedSwaps.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: C.muted }}>
               <div style={{ fontSize: '3rem', marginBottom: 12 }}>📖</div>
@@ -304,12 +291,23 @@ export default function Profile() {
                 return (
                   <Card key={s.id} style={{ padding: '1.2rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                      <div>
+                      <div style={{ flex: 1 }}>
                         <p style={{ fontWeight: 700, color: C.text, fontSize: '0.9rem', marginBottom: 4 }}>Tausch mit {otherPerson?.name || 'Nutzer'}</p>
                         <p style={{ fontSize: '0.8rem', color: C.muted }}>📚 {s.requested?.title || '?'} ⇄ {s.offered?.title || '?'}</p>
                         <p style={{ fontSize: '0.72rem', color: C.muted, marginTop: 4 }}>{new Date(s.created_at).toLocaleDateString('de-DE')}</p>
                       </div>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.3rem 0.7rem', borderRadius: 100, whiteSpace: 'nowrap' }}>✓ Abgeschlossen</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: C.success, background: C.successLight, padding: '0.3rem 0.7rem', borderRadius: 100, whiteSpace: 'nowrap' }}>✓ Abgeschlossen</span>
+                        {/* Verlauf-Löschen Button */}
+                        <button
+                          onClick={() => handleDeleteHistory(s.id)}
+                          disabled={deletingHistory === s.id}
+                          title="Aus meinem Verlauf entfernen"
+                          style={{ width: 28, height: 28, borderRadius: '50%', border: `1px solid ${C.border}`, background: 'transparent', color: C.muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </div>
                     {review && (
                       <div style={{ background: C.bg, borderRadius: 10, padding: '0.75rem', display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10 }}>
