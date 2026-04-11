@@ -71,7 +71,9 @@ async function lookupISBN(isbn) {
       const t700 = xml.match(/tag="700"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
       const t520 = xml.match(/tag="520"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
       const t500 = xml.match(/tag="500"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
-      const t653 = [...xml.matchAll(/tag="653"[^>]*>[\s\S]{0,300}?subfield code="a">([^<]+)</g)].map(m => m[1]).join(' ')
+      const t653arr = [...xml.matchAll(/tag="653"[^>]*>[\s\S]{0,300}?subfield code="a">([^<]+)</g)].map(m => m[1])
+      const t653 = t653arr.join(' ')
+      const meaningfulKeywords = t653arr.filter(k => !k.startsWith('(') && k.length > 3 && k.length < 50).slice(0, 8)
 
       if (t245a?.[1]) {
         let author = t100?.[1] || t700?.[1] || ''
@@ -86,10 +88,15 @@ async function lookupISBN(isbn) {
             title = title + ' – ' + sub
           }
         }
+        // Beschreibung: 520 > 500 > Keywords als Fallback
+        let dnbDesc = decodeHtml(t520?.[1] || t500?.[1] || '')
+        if (!dnbDesc && meaningfulKeywords.length > 0) {
+          dnbDesc = meaningfulKeywords.join(' · ')
+        }
         const dnb = {
           title,
           author: decodeHtml(author),
-          description: decodeHtml(t520?.[1] || t500?.[1] || ''),
+          description: dnbDesc,
           category: detectCategory(t653),
         }
         if (!result) {
