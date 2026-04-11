@@ -5,8 +5,11 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
 import { C, Card, Avatar, Spinner } from '../components/UI'
 
-// ── Admin-Zugangscode (einfacher Schutz) ─────────────────────
-const ADMIN_CODE = 'swap2024'
+// ── Admin User-IDs (sicher — nicht im Browser sichtbar) ──────
+// Nur diese Supabase User-IDs haben Zugriff
+const ADMIN_USER_IDS = [
+  '6f4e3098-ae93-4147-8041-06d2ed75b0c4', // hemmito12@gmail.com (Mo B)
+]
 
 // ── Balken-Chart ──────────────────────────────────────────────
 function BarChart({ data, color = C.purple }) {
@@ -62,9 +65,17 @@ export default function Admin() {
   const [codeError, setCodeError] = useState(false)
   const [loading, setLoading] = useState(false)
   const [stats, setStats] = useState(null)
+  const [accessDenied, setAccessDenied] = useState(false)
+
+  // Prüfen ob User eingeloggt und Admin ist
+  useEffect(() => {
+    if (user && !ADMIN_USER_IDS.includes(user.id)) {
+      setAccessDenied(true)
+    }
+  }, [user])
 
   const handleUnlock = () => {
-    if (code === ADMIN_CODE) {
+    if (code === 'swap2024admin') {
       setUnlocked(true)
       loadStats()
     } else {
@@ -144,6 +155,22 @@ export default function Admin() {
       topTraders: topTraders || [],
     })
     setLoading(false)
+  }
+
+  // ── Kein Zugriff ──────────────────────────────────────────
+  if (accessDenied) {
+    return (
+      <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '3rem', marginBottom: 12 }}>🚫</div>
+          <h1 style={{ fontSize: '1.3rem', fontWeight: 900, color: C.bark, marginBottom: 8 }}>Kein Zugriff</h1>
+          <p style={{ fontSize: '0.85rem', color: C.muted, marginBottom: 20 }}>Du hast keine Berechtigung für diesen Bereich.</p>
+          <button onClick={() => navigate('/')} style={{ padding: '0.7rem 1.5rem', borderRadius: 12, background: `linear-gradient(135deg,${C.bark},${C.purple})`, color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+            Zur Startseite
+          </button>
+        </div>
+      </div>
+    )
   }
 
   // ── Login Screen ───────────────────────────────────────────
