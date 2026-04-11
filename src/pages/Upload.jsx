@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Upload, Check, ChevronLeft, X, Camera, Search, Loader } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
-import { C, Card, PrimaryBtn, Input } from '../components/UI'
+import { C, Card, PrimaryBtn } from '../components/UI'
 
 const CONDITIONS = ['Wie neu', 'Sehr gut', 'Gut', 'Akzeptabel']
 const CATEGORIES = ['Roman', 'Sachbuch', 'Schulbuch', 'Studium / Fachbuch', 'Krimi / Thriller', 'Fantasy / SciFi', 'Kinder / Jugend', 'Ratgeber', 'Sonstiges']
@@ -41,110 +41,75 @@ function PhotoSlot({ label, preview, onSelect, onRemove }) {
   )
 }
 
-// ── ISBN Kamera Scanner ────────────────────────────────────────
-function BarcodeScanner({ onDetected, onClose }) {
-  const videoRef = useRef(null)
-  const streamRef = useRef(null)
-  const [error, setError] = useState(null)
-  const [scanning, setScanning] = useState(true)
+// ── ISBN Lookup — Open Library + DNB Fallback ─────────────────
+async function lookupISBNData(isbn) {
+  const clean = isbn.replace(/[-\s]/g, '')
 
-  useEffect(() => {
-    let interval = null
-
-    const startCamera = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-        })
-        streamRef.current = stream
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          videoRef.current.play()
-        }
-
-        // BarcodeDetector API (verfügbar in Chrome/Android)
-        if ('BarcodeDetector' in window) {
-          const detector = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8'] })
-          interval = setInterval(async () => {
-            if (!videoRef.current || !scanning) return
-            try {
-              const barcodes = await detector.detect(videoRef.current)
-              if (barcodes.length > 0) {
-                const isbn = barcodes[0].rawValue.replace(/-/g, '')
-                stopCamera()
-                onDetected(isbn)
-              }
-            } catch (e) {}
-          }, 500)
-        } else {
-          setError('Kamera-Scanner wird auf diesem Gerät nicht unterstützt. Bitte ISBN manuell eingeben.')
-        }
-      } catch (e) {
-        setError('Kamera-Zugriff verweigert. Bitte Berechtigung erteilen oder ISBN manuell eingeben.')
+  // 1. Open Library (gut für englische Bücher)
+  try {
+    const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${clean}&format=json&jscmd=data`)
+    const data = await res.json()
+    const book = data[`ISBN:${clean}`]
+    if (book?.title) {
+      return {
+        title: book.title || '',
+        author: book.authors?.[0]?.name || '',
+        description: typeof book.notes === 'string' ? book.notes : (book.notes?.value || ''),
+        category: detectCategory(book.subjects?.map(s => s.name || s).join(' ') || ''),
       }
     }
+  } catch (e) {}
 
-    const stopCamera = () => {
-      if (interval) clearInterval(interval)
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(t => t.stop())
-        streamRef.current = null
+  // 2. Deutsche Nationalbibliothek (DNB) — für deutsche Bücher
+  try {
+    const res = await fetch(
+      `https://services.dnb.de/sru/dnb?version=1.1&operation=searchRetrieve&query=isbn%3D${clean}&recordSchema=MARC21-xml&maximumRecords=1`
+    )
+    const xml = await res.text()
+    const numRecords = xml.match(/numberOfRecords>(\d+)</)
+    if (numRecords && parseInt(numRecords[1]) > 0) {
+      const titleMatch = xml.match(/tag="245"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
+      const authorMatch = xml.match(/tag="100"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
+      const author700 = xml.match(/tag="700"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
+      const subjectMatch = xml.match(/tag="650"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
+      const descMatch = xml.match(/tag="520"[^>]*>[\s\S]{0,500}?subfield code="a">([^<]+)</)
+
+      if (titleMatch?.[1]) {
+        // DNB gibt Autoren oft als "Nachname, Vorname" — umdrehen
+        let rawAuthor = authorMatch?.[1] || author700?.[1] || ''
+        if (rawAuthor.includes(',')) {
+          const parts = rawAuthor.split(',')
+          rawAuthor = (parts[1]?.trim() + ' ' + parts[0]?.trim()).trim()
+        }
+        return {
+          title: titleMatch[1].trim(),
+          author: rawAuthor,
+          description: descMatch?.[1]?.trim() || '',
+          category: detectCategory(subjectMatch?.[1] || ''),
+        }
       }
-      setScanning(false)
     }
+  } catch (e) {}
 
-    startCamera()
-    return () => stopCamera()
-  }, [])
+  return null
+}
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: '#000', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.5rem', background: 'rgba(0,0,0,0.8)' }}>
-        <span style={{ color: '#fff', fontWeight: 700, fontSize: '1rem' }}>Barcode scannen</span>
-        <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <X size={18} color="#fff" />
-        </button>
-      </div>
-
-      {/* Camera */}
-      <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-
-        {/* Scan-Rahmen */}
-        {!error && (
-          <div style={{ position: 'absolute', width: 260, height: 120, border: '3px solid #C8843A', borderRadius: 12, boxShadow: '0 0 0 9999px rgba(0,0,0,0.5)' }}>
-            {/* Ecken */}
-            {[['0 auto auto 0', '-3px auto auto -3px'], ['0 0 auto auto', '-3px -3px auto auto'], ['auto auto 0 0', 'auto auto -3px -3px'], ['auto 0 0 auto', 'auto -3px -3px auto']].map(([b, pos], i) => (
-              <div key={i} style={{ position: 'absolute', width: 20, height: 20, border: `3px solid #C8843A`, borderRadius: 2, [['borderRight', 'borderLeft', 'borderRight', 'borderLeft'][i]]: 'none', [['borderBottom', 'borderBottom', 'borderTop', 'borderTop'][i]]: 'none', top: pos.split(' ')[0] === 'auto' ? 'auto' : pos.split(' ')[0], right: pos.split(' ')[1] === 'auto' ? 'auto' : pos.split(' ')[1], bottom: pos.split(' ')[2] === 'auto' ? 'auto' : pos.split(' ')[2], left: pos.split(' ')[3] === 'auto' ? 'auto' : pos.split(' ')[3] }} />
-            ))}
-            <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 2, background: 'rgba(200,132,58,0.7)', animation: 'scanLine 2s ease-in-out infinite' }} />
-          </div>
-        )}
-
-        {error && (
-          <div style={{ position: 'absolute', padding: '1.5rem', background: 'rgba(0,0,0,0.85)', borderRadius: 16, margin: '1rem', textAlign: 'center' }}>
-            <p style={{ color: '#fff', fontSize: '0.85rem', lineHeight: 1.6, marginBottom: 12 }}>{error}</p>
-            <button onClick={onClose} style={{ padding: '0.6rem 1.5rem', background: C.purple, border: 'none', borderRadius: 10, color: '#fff', cursor: 'pointer', fontWeight: 600 }}>
-              Manuell eingeben
-            </button>
-          </div>
-        )}
-      </div>
-
-      <div style={{ padding: '1rem', background: 'rgba(0,0,0,0.8)', textAlign: 'center', color: 'rgba(255,255,255,0.7)', fontSize: '0.82rem' }}>
-        Halte die Kamera über den Barcode auf der Rückseite des Buches
-      </div>
-
-      <style>{`@keyframes scanLine { 0%,100% { transform: translateY(-30px); opacity: 0.5; } 50% { transform: translateY(30px); opacity: 1; } }`}</style>
-    </div>
-  )
+function detectCategory(subjectStr) {
+  const s = subjectStr.toLowerCase()
+  if (s.includes('kinder') || s.includes('jugend') || s.includes('children')) return 'Kinder / Jugend'
+  if (s.includes('krimi') || s.includes('crime') || s.includes('thriller') || s.includes('mystery')) return 'Krimi / Thriller'
+  if (s.includes('fantasy') || s.includes('science fiction') || s.includes('sci-fi')) return 'Fantasy / SciFi'
+  if (s.includes('schul') || s.includes('lehrbuch') || s.includes('school')) return 'Schulbuch'
+  if (s.includes('roman') || s.includes('fiction') || s.includes('novel') || s.includes('erzähl')) return 'Roman'
+  if (s.includes('sachbuch') || s.includes('nonfiction') || s.includes('ratgeber')) return 'Sachbuch'
+  return 'Roman'
 }
 
 // ── Main ──────────────────────────────────────────────────────
 export default function UploadPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const scanInputRef = useRef(null)
 
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
@@ -163,59 +128,69 @@ export default function UploadPage() {
   const [isbnError, setIsbnError] = useState('')
   const [isbnSuccess, setIsbnSuccess] = useState(false)
   const [error, setError] = useState('')
-  const [showScanner, setShowScanner] = useState(false)
 
-  // ── ISBN Lookup via Open Library API ──────────────────────
-  const lookupISBN = async (isbnValue) => {
-    const clean = isbnValue.replace(/[-\s]/g, '')
-    if (clean.length < 10) {
-      setIsbnError('ISBN muss mindestens 10 Zeichen haben.')
-      return
-    }
+  const handleISBNLookup = async (isbnValue) => {
+    const clean = (isbnValue || isbn).replace(/[-\s]/g, '')
+    if (clean.length < 10) { setIsbnError('ISBN muss mindestens 10 Zeichen haben.'); return }
 
     setIsbnLoading(true)
     setIsbnError('')
     setIsbnSuccess(false)
 
-    try {
-      const res = await fetch(`https://openlibrary.org/api/books?bibkeys=ISBN:${clean}&format=json&jscmd=data`)
-      const data = await res.json()
-      const book = data[`ISBN:${clean}`]
+    const result = await lookupISBNData(clean)
 
-      if (!book) {
-        setIsbnError('Buch nicht gefunden. Bitte manuell eingeben.')
-        setIsbnLoading(false)
-        return
-      }
-
-      // Felder automatisch ausfüllen
-      if (book.title) setTitle(book.title)
-      if (book.authors?.[0]?.name) setAuthor(book.authors[0].name)
-      if (book.notes) setDescription(typeof book.notes === 'string' ? book.notes : book.notes?.value || '')
-
-      // Kategorie aus Subjects ableiten
-      if (book.subjects?.length > 0) {
-        const subjectStr = book.subjects.map(s => s.name || s).join(' ').toLowerCase()
-        if (subjectStr.includes('kinder') || subjectStr.includes('jugend') || subjectStr.includes('children')) setCategory('Kinder / Jugend')
-        else if (subjectStr.includes('krimi') || subjectStr.includes('crime') || subjectStr.includes('thriller') || subjectStr.includes('mystery')) setCategory('Krimi / Thriller')
-        else if (subjectStr.includes('fantasy') || subjectStr.includes('science fiction') || subjectStr.includes('sci-fi')) setCategory('Fantasy / SciFi')
-        else if (subjectStr.includes('school') || subjectStr.includes('schul') || subjectStr.includes('lehrbuch')) setCategory('Schulbuch')
-        else if (subjectStr.includes('roman') || subjectStr.includes('fiction') || subjectStr.includes('novel')) setCategory('Roman')
-        else if (subjectStr.includes('sachbuch') || subjectStr.includes('nonfiction') || subjectStr.includes('non-fiction')) setCategory('Sachbuch')
-      }
-
-      setIsbnSuccess(true)
-    } catch (e) {
-      setIsbnError('Fehler beim Abrufen. Bitte manuell eingeben.')
+    if (!result) {
+      setIsbnError('Buch nicht gefunden. Bitte Titel und Autor manuell eingeben.')
+      setIsbnLoading(false)
+      return
     }
 
+    if (result.title) setTitle(result.title)
+    if (result.author) setAuthor(result.author)
+    if (result.description) setDescription(result.description)
+    if (result.category) setCategory(result.category)
+    setIsbnSuccess(true)
     setIsbnLoading(false)
   }
 
-  const handleScanDetected = (scannedIsbn) => {
-    setShowScanner(false)
-    setIsbn(scannedIsbn)
-    lookupISBN(scannedIsbn)
+  // ── iPhone/Android Kamera-Scan ────────────────────────────
+  // Statt BarcodeDetector API (nicht auf Safari/iOS) nutzen wir
+  // input[capture=environment] + ZXing WASM für Barcode-Erkennung
+  const handleCameraCapture = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+
+    setIsbnLoading(true)
+    setIsbnError('')
+
+    try {
+      // ZXing via CDN dynamisch laden
+      const { BrowserMultiFormatReader } = await import('https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm')
+      const reader = new BrowserMultiFormatReader()
+      const img = document.createElement('img')
+      const url = URL.createObjectURL(file)
+      img.src = url
+
+      await new Promise((resolve) => { img.onload = resolve })
+
+      const result = await reader.decodeFromImageElement(img)
+      URL.revokeObjectURL(url)
+
+      if (result?.text) {
+        const scannedIsbn = result.text.replace(/[-\s]/g, '')
+        setIsbn(scannedIsbn)
+        await handleISBNLookup(scannedIsbn)
+      } else {
+        setIsbnError('Kein Barcode erkannt. Bitte ISBN manuell eingeben.')
+        setIsbnLoading(false)
+      }
+    } catch (err) {
+      setIsbnError('Barcode nicht lesbar. Bitte ISBN manuell eingeben.')
+      setIsbnLoading(false)
+    }
+
+    // Input zurücksetzen damit man erneut scannen kann
+    if (scanInputRef.current) scanInputRef.current.value = ''
   }
 
   const uploadImage = async (file) => {
@@ -232,8 +207,7 @@ export default function UploadPage() {
     if (!user) { setError('Bitte zuerst anmelden.'); return }
     setLoading(true); setError('')
 
-    let cover_url = null
-    let cover_url_2 = null
+    let cover_url = null, cover_url_2 = null
     if (coverFile1) cover_url = await uploadImage(coverFile1)
     if (coverFile2) cover_url_2 = await uploadImage(coverFile2)
 
@@ -254,7 +228,6 @@ export default function UploadPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, paddingBottom: 80 }}>
-      {showScanner && <BarcodeScanner onDetected={handleScanDetected} onClose={() => setShowScanner(false)} />}
 
       {/* Header */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '0.75rem 1.5rem', display: 'flex', alignItems: 'center', gap: 10, position: 'sticky', top: 60, zIndex: 50 }}>
@@ -272,49 +245,68 @@ export default function UploadPage() {
             📱 ISBN scannen oder eingeben
           </h3>
           <p style={{ fontSize: '0.78rem', color: C.muted, marginBottom: 12, lineHeight: 1.5 }}>
-            Scanne den Barcode auf der Rückseite des Buches — Titel, Autor & Kategorie werden automatisch ausgefüllt.
+            Scanne den Barcode auf der Rückseite — Titel, Autor & Kategorie werden automatisch ausgefüllt.
           </p>
 
           <div style={{ display: 'flex', gap: 8 }}>
-            {/* Kamera-Button */}
-            <button
-              onClick={() => setShowScanner(true)}
-              style={{ width: 48, height: 48, borderRadius: 12, background: `linear-gradient(135deg,${C.bark},${C.purple})`, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 4px 12px rgba(61,43,31,0.25)' }}
-              title="Kamera-Scanner öffnen"
-            >
-              <Camera size={20} color="#fff" />
-            </button>
+            {/* Kamera-Button — funktioniert auf iPhone UND Android */}
+            <label style={{ flexShrink: 0, cursor: 'pointer' }}>
+              <input
+                ref={scanInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleCameraCapture}
+                style={{ display: 'none' }}
+              />
+              <div style={{
+                width: 48, height: 48, borderRadius: 12,
+                background: isbnLoading ? C.border : `linear-gradient(135deg,${C.bark},${C.purple})`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: isbnLoading ? 'none' : '0 4px 12px rgba(61,43,31,0.25)',
+                cursor: isbnLoading ? 'not-allowed' : 'pointer',
+              }}>
+                {isbnLoading
+                  ? <Loader size={20} color={C.muted} style={{ animation: 'spin 0.8s linear infinite' }} />
+                  : <Camera size={20} color="#fff" />
+                }
+              </div>
+            </label>
 
             {/* ISBN Eingabefeld */}
             <div style={{ flex: 1, position: 'relative' }}>
               <input
                 value={isbn}
                 onChange={e => { setIsbn(e.target.value); setIsbnError(''); setIsbnSuccess(false) }}
-                onKeyDown={e => { if (e.key === 'Enter') lookupISBN(isbn) }}
+                onKeyDown={e => { if (e.key === 'Enter') handleISBNLookup(isbn) }}
                 placeholder="ISBN eingeben (z.B. 9783442480098)"
-                style={{ ...inputStyle, paddingRight: '3rem' }}
+                style={{ ...inputStyle, paddingRight: isbn.length >= 10 ? '3rem' : '1rem' }}
               />
-              {isbn.length >= 10 && (
+              {isbn.length >= 10 && !isbnLoading && (
                 <button
-                  onClick={() => lookupISBN(isbn)}
-                  disabled={isbnLoading}
+                  onClick={() => handleISBNLookup(isbn)}
                   style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', width: 32, height: 32, borderRadius: 8, background: C.purple, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >
-                  {isbnLoading ? <Loader size={14} color="#fff" style={{ animation: 'spin 0.8s linear infinite' }} /> : <Search size={14} color="#fff" />}
+                  <Search size={14} color="#fff" />
                 </button>
+              )}
+              {isbnLoading && (
+                <div style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)' }}>
+                  <Loader size={16} color={C.purple} style={{ animation: 'spin 0.8s linear infinite' }} />
+                </div>
               )}
             </div>
           </div>
 
           {/* Feedback */}
           {isbnError && (
-            <div style={{ marginTop: 8, padding: '0.5rem 0.75rem', background: '#FEE2E2', borderRadius: 8, fontSize: '0.78rem', color: '#991B1B' }}>
+            <div style={{ marginTop: 8, padding: '0.5rem 0.75rem', background: '#FEE2E2', borderRadius: 8, fontSize: '0.78rem', color: '#991B1B', lineHeight: 1.5 }}>
               ⚠️ {isbnError}
             </div>
           )}
           {isbnSuccess && (
             <div style={{ marginTop: 8, padding: '0.5rem 0.75rem', background: '#D1FAE5', borderRadius: 8, fontSize: '0.78rem', color: '#065F46', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Check size={14} /> Buch gefunden! Felder wurden ausgefüllt — bitte prüfen und ergänzen.
+              <Check size={14} /> Buch gefunden! Bitte Felder prüfen und Zustand auswählen.
             </div>
           )}
         </Card>
@@ -325,7 +317,7 @@ export default function UploadPage() {
             Fotos <span style={{ color: C.muted, fontWeight: 400, fontSize: '0.82rem' }}>(optional, max. 2)</span>
           </h3>
           <p style={{ fontSize: '0.78rem', color: C.muted, marginBottom: 14, lineHeight: 1.5 }}>
-            📸 Mach eigene Fotos von deinem Buch — Vorder- und Rückseite
+            📸 Mach eigene Fotos von deinem Buch — so sieht der andere den echten Zustand
           </p>
           <div style={{ display: 'flex', gap: 12 }}>
             <PhotoSlot label="Vorderseite" preview={coverPreview1}
@@ -348,7 +340,7 @@ export default function UploadPage() {
             <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 5 }}>Autor *</label>
             <input style={inputStyle} value={author} onChange={e => setAuthor(e.target.value)} placeholder="z.B. J.K. Rowling" />
           </div>
-          <div style={{ marginBottom: 12 }}>
+          <div>
             <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: C.text, marginBottom: 5 }}>Kategorie</label>
             <select value={category} onChange={e => setCategory(e.target.value)} style={inputStyle}>
               {CATEGORIES.map(c => <option key={c}>{c}</option>)}
@@ -392,7 +384,7 @@ export default function UploadPage() {
         </PrimaryBtn>
       </div>
 
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 }
